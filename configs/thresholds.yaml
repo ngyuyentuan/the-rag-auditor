@@ -1,1 +1,13 @@
 
+retrieval:
+  T_upper: 0.70 
+  T_lower: 0.40 
+faithfulness:
+  T_FS: 0.90
+
+uncertainty:
+  T_NSE: 0.20
+
+coverage:
+  T_Cov_low: 0.50
+  T_Cov_high: 0.80

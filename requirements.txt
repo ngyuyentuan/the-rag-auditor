@@ -6,4 +6,5 @@ transformers
 sentence-transformers
 datasets
 pyyaml
+rapidfuzz
 

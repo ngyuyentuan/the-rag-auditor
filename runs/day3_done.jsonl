@@ -1,0 +1,2 @@
+{"ts": 1765978222.1746051, "event_type": "day3_done", "payload": {"path": "data/fever_splits", "train_lines": 161897, "dev_lines": 9525, "test_lines": 9583}}
+{"ts": 1765978748.469217, "event_type": "day3_done", "payload": {"path": "data/fever_splits", "train_lines": 161897, "dev_lines": 9525, "test_lines": 9583}}

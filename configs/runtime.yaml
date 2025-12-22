@@ -1,0 +1,4 @@
+platform: colab_cpu
+seed: 42
+cache_dir: artifacts/hf_cache
+log_dir: runs

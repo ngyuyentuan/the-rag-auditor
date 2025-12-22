@@ -1,0 +1,9 @@
+{
+  "mode": "scifact",
+  "seed": 42,
+  "top_k": 50,
+  "rerank_top_n": 5,
+  "temperature": 1.0,
+  "count": 1109,
+  "pos_rate": 0.0
+}

@@ -1,0 +1,1 @@
+{"ts": 1766289403.3873138, "event_type": "day7_done", "payload": {"created_ts": 1766289403.3868206, "deliverables": ["artifacts/faiss.index", "reports/retrieval_baseline.md"], "metrics": {"recall@1": 0.07643044619422572, "recall@5": 0.099002624671916, "recall@10": 0.10519685039370079, "recall@20": 0.10992125984251969}}}

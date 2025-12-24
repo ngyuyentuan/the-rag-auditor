@@ -11,3 +11,17 @@ uncertainty:
 coverage:
   T_Cov_low: 0.50
   T_Cov_high: 0.80
+  
+thresholds:
+  scifact:
+    t_lower: 0.7792245061204353
+    t_upper: 0.8008901176300922
+    tau: 0.609483051351548
+    target_precision: 0.9
+    target_recall: 0.95
+  fever:
+    t_lower: 0.0721672686678491
+    t_upper: 1.0
+    tau: 0.9957177012600404
+    target_precision: 0.9
+    target_recall: 0.95

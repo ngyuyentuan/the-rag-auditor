@@ -10,6 +10,7 @@ rapidfuzz
 pyarrow 
 scikit-learn
 matplotlib 
-pyyaml tqdm 
+pyyaml 
+tqdm 
 sentence-transformers
 faiss-cpu

@@ -14,3 +14,4 @@ pyyaml
 tqdm 
 sentence-transformers
 faiss-cpu
+qdrant-client

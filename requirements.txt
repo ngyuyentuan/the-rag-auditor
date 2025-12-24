@@ -7,4 +7,9 @@ sentence-transformers
 datasets
 pyyaml
 rapidfuzz
-
+pyarrow 
+scikit-learn
+matplotlib 
+pyyaml tqdm 
+sentence-transformers
+faiss-cpu

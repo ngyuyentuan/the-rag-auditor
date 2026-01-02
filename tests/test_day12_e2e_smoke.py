@@ -131,3 +131,36 @@ def test_day12_e2e_smoke(tmp_path):
     subprocess.check_call(cmd, cwd=repo_root)
     assert stats_md.exists()
     assert stats_json.exists()
+
+
+def test_router_budget_cap_keeps_uncertain(tmp_path):
+    from types import SimpleNamespace
+
+    class DummyModel:
+        def predict_proba(self, x):
+            import numpy as np
+            return np.array([[0.5, 0.5]] * len(x))
+
+    from scripts.run_product_proof_router_v2_matrix import apply_router_v2
+
+    in_path = tmp_path / "in.jsonl"
+    out_path = tmp_path / "out.jsonl"
+    row = {
+        "metadata": {"qid": "1"},
+        "stage1": {"route_decision": "UNCERTAIN", "route_reason": "baseline"},
+        "stage2": {"ran": True, "rerank": {"model": "x"}, "nli": {"model": "x"}},
+        "timing_ms": {"stage1_ms": 1.0, "rerank_ms": 1.0, "nli_ms": 1.0, "total_ms": 3.0},
+        "ground_truth": {"y": 1},
+        "pred": {"pred_verdict": "SUPPORTS"},
+    }
+    in_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    router = SimpleNamespace(model=DummyModel(), feature_cols=["f1"], logit_col="f1", prob_flip=False)
+    import numpy as np
+    feature_map = {"1": np.array([0.0])}
+    apply_router_v2(in_path, out_path, router, feature_map, 0.8, 0.2, "uncertain_only", 0.0, {"f1": True})
+    out = json.loads(out_path.read_text(encoding="utf-8").splitlines()[0])
+    assert out["stage1"]["route_decision"] == "UNCERTAIN"
+    assert out["stage2"]["ran"] is False
+    assert out["stage2"]["capped"] is True
+    assert out["stage2"]["capped_reason"] == "budget_cap"
+    assert out["stage2"]["rerank"]["reason"] == "budget_cap"

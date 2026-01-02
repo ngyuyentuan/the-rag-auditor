@@ -166,10 +166,24 @@ def build_feature_map(parquet_path, logit_col, feature_cols):
     feat_df = build_feature_frame(df, logit_col, feature_cols)
     qids = df["qid"].astype(str).tolist()
     feats = feat_df.to_numpy()
-    return dict(zip(qids, feats))
+    present = {}
+    for col in feature_cols:
+        if col in df.columns:
+            present[col] = True
+        elif col in ["abs_logit", "logit_sq", "logit_sigmoid", "logit_cube", "cs_ret"]:
+            present[col] = logit_col in df.columns
+        elif col in ["top1_sim", "top2_sim", "top3_sim", "delta12", "count_sim_ge_t"]:
+            present[col] = "raw_max_top3" in df.columns or "gap12" in df.columns
+        elif col in ["top1", "top2", "top3", "margin", "topk_gap", "topk_ratio", "topk_entropy", "score_span"]:
+            present[col] = col in df.columns or ("top1" in df.columns and "top2" in df.columns)
+        elif col in ["topk_mean", "topk_std"]:
+            present[col] = "mean_top3" in df.columns or "mean_top5" in df.columns or "std_top3" in df.columns or "std_top5" in df.columns
+        else:
+            present[col] = False
+    return dict(zip(qids, feats)), present
 
 
-def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject, policy, stage2_budget):
+def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject, policy, stage2_budget, features_present):
     in_path = Path(in_jsonl)
     out_path = Path(out_jsonl)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -241,7 +255,7 @@ def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject
             if router_decision == "UNCERTAIN":
                 if budget_k is not None and idx not in keep:
                     route_decision = "UNCERTAIN"
-                    entry["route_reason"] = "stage2_budget_exceeded"
+                    entry["route_reason"] = "stage2_budget_cap"
                     budget_capped = True
                 else:
                     routed_to_stage2 = True
@@ -254,7 +268,7 @@ def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject
                 "p_hat": entry["p_hat"],
                 "t_accept": float(t_accept),
                 "t_reject": float(t_reject),
-                "features_present": {k: True for k in router.feature_cols},
+                "features_present": features_present,
                 "stage2_budget": stage2_budget,
                 "routed_to_stage2": routed_to_stage2,
                 "budget_rank": rank_map.get(idx),
@@ -292,7 +306,7 @@ def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject
             stage2["route_requested"] = bool(route_decision == "UNCERTAIN")
             stage2["capped"] = bool(budget_capped)
             stage2["cap_budget"] = stage2_budget
-            stage2["capped_reason"] = "budget_exceeded" if budget_capped else None
+            stage2["capped_reason"] = "budget_cap" if budget_capped else None
             if should_run and has_stage2_data:
                 stage2["ran"] = True
             else:
@@ -303,8 +317,8 @@ def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject
                     stage2["rerank"] = {"skipped": True, "reason": "missing_stage2_outputs"}
                     stage2["nli"] = {"skipped": True, "reason": "missing_stage2_outputs"}
                 if budget_capped:
-                    stage2["rerank"] = {"skipped": True, "reason": "budget_exceeded"}
-                    stage2["nli"] = {"skipped": True, "reason": "budget_exceeded"}
+                    stage2["rerank"] = {"skipped": True, "reason": "budget_cap"}
+                    stage2["nli"] = {"skipped": True, "reason": "budget_cap"}
                 timing["rerank_ms"] = 0.0
                 timing["nli_ms"] = 0.0
                 if "stage1_ms" in timing:
@@ -434,8 +448,8 @@ def main():
     sc_router = load(args.model_scifact)
     fv_router = load(args.model_fever)
 
-    scifact_map = build_feature_map(args.scifact_in_path, sc_router.logit_col, sc_router.feature_cols)
-    fever_map = build_feature_map(args.fever_in_path, fv_router.logit_col, fv_router.feature_cols)
+    scifact_map, scifact_present = build_feature_map(args.scifact_in_path, sc_router.logit_col, sc_router.feature_cols)
+    fever_map, fever_present = build_feature_map(args.fever_in_path, fv_router.logit_col, fv_router.feature_cols)
 
     sc_ta = float(sc_router.t_accept)
     sc_tr = float(sc_router.t_reject)
@@ -448,13 +462,13 @@ def main():
     fv_prod_a = out_dir / f"fever_router_v2_always_{args.n}.jsonl"
 
     if scifact_u.exists() and not sc_prod_u.exists():
-        apply_router_v2(scifact_u, sc_prod_u, sc_router, scifact_map, sc_ta, sc_tr, "uncertain_only", args.stage2_budget_scifact)
+        apply_router_v2(scifact_u, sc_prod_u, sc_router, scifact_map, sc_ta, sc_tr, "uncertain_only", args.stage2_budget_scifact, scifact_present)
     if scifact_a.exists() and not sc_prod_a.exists():
-        apply_router_v2(scifact_a, sc_prod_a, sc_router, scifact_map, sc_ta, sc_tr, "always", args.stage2_budget_scifact)
+        apply_router_v2(scifact_a, sc_prod_a, sc_router, scifact_map, sc_ta, sc_tr, "always", args.stage2_budget_scifact, scifact_present)
     if fever_u.exists() and not fv_prod_u.exists():
-        apply_router_v2(fever_u, fv_prod_u, fv_router, fever_map, fv_ta, fv_tr, "uncertain_only", args.stage2_budget_fever)
+        apply_router_v2(fever_u, fv_prod_u, fv_router, fever_map, fv_ta, fv_tr, "uncertain_only", args.stage2_budget_fever, fever_present)
     if fever_a.exists() and not fv_prod_a.exists():
-        apply_router_v2(fever_a, fv_prod_a, fv_router, fever_map, fv_ta, fv_tr, "always", args.stage2_budget_fever)
+        apply_router_v2(fever_a, fv_prod_a, fv_router, fever_map, fv_ta, fv_tr, "always", args.stage2_budget_fever, fever_present)
 
     report = Path(args.out_md)
     report.parent.mkdir(parents=True, exist_ok=True)

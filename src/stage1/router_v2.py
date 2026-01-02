@@ -91,11 +91,39 @@ def build_feature_frame(df, logit_col, feature_cols):
         out["top1"] = df["top1"].astype(float)
     if "top2" in feature_cols and "top2" in df.columns:
         out["top2"] = df["top2"].astype(float)
+    if "top3" in feature_cols and "top3" in df.columns:
+        out["top3"] = df["top3"].astype(float)
     if "margin" in feature_cols:
         if "gap12" in df.columns:
             out["margin"] = df["gap12"].astype(float)
         elif "top1" in out.columns and "top2" in out.columns:
             out["margin"] = out["top1"] - out["top2"]
+    if "topk_gap" in feature_cols:
+        if "top1" in out.columns and "top2" in out.columns:
+            out["topk_gap"] = out["top1"] - out["top2"]
+        elif "margin" in out.columns:
+            out["topk_gap"] = out["margin"]
+        else:
+            out["topk_gap"] = 0.0
+    if "topk_ratio" in feature_cols:
+        if "top1" in out.columns and "top2" in out.columns:
+            out["topk_ratio"] = out["top1"] / (out["top2"] + 1e-6)
+        else:
+            out["topk_ratio"] = 0.0
+    if "topk_entropy" in feature_cols:
+        if "top1" in out.columns and "top2" in out.columns and "top3" in out.columns:
+            logits = np.stack([out["top1"], out["top2"], out["top3"]], axis=1)
+            logits = logits - np.max(logits, axis=1, keepdims=True)
+            probs = np.exp(logits)
+            probs = probs / np.sum(probs, axis=1, keepdims=True)
+            out["topk_entropy"] = -np.sum(probs * np.log(probs + 1e-9), axis=1)
+        else:
+            out["topk_entropy"] = 0.0
+    if "score_span" in feature_cols:
+        if "top1" in out.columns and "top2" in out.columns and "top3" in out.columns:
+            out["score_span"] = out[["top1", "top2", "top3"]].max(axis=1) - out[["top1", "top2", "top3"]].min(axis=1)
+        else:
+            out["score_span"] = 0.0
     if "topk_mean" in feature_cols:
         if "mean_top3" in df.columns:
             out["topk_mean"] = df["mean_top3"].astype(float)

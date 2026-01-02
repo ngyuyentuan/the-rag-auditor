@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
@@ -13,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.stage1.router_v2 import build_feature_frame, fit, save
+from src.stage1.router_v2 import build_feature_frame, fit, save, RouterV2
 
 
 def compute_ece(y_true, y_prob, bins=10):
@@ -89,6 +91,27 @@ def select_thresholds(y_true, y_prob, alphas, betas, c_fp, c_fn, c_stage2, t_rej
     return best_by_gate, results
 
 
+def select_best_candidate(results, alpha, beta, objective):
+    feasible = [r for r in results if r["fp_accept_rate"] <= alpha and r["fn_reject_rate"] <= beta]
+    if objective == "min_route":
+        if feasible:
+            feasible.sort(key=lambda r: (r["uncertain_rate"], r["expected_cost"], -r["ok_rate"]))
+            return feasible[0], True
+        results_sorted = sorted(results, key=lambda r: (r["uncertain_rate"], r["expected_cost"], -r["ok_rate"]))
+        return results_sorted[0], False
+    if objective == "min_uncertain":
+        if feasible:
+            feasible.sort(key=lambda r: (r["uncertain_rate"], r["expected_cost"], -r["ok_rate"]))
+            return feasible[0], True
+        results_sorted = sorted(results, key=lambda r: (r["uncertain_rate"], r["expected_cost"], -r["ok_rate"]))
+        return results_sorted[0], False
+    if feasible:
+        feasible.sort(key=lambda r: (r["expected_cost"], r["uncertain_rate"]))
+        return feasible[0], True
+    results_sorted = sorted(results, key=lambda r: (r["expected_cost"], r["uncertain_rate"]))
+    return results_sorted[0], False
+
+
 def select_feature_cols(df, logit_col):
     feature_cols = [logit_col, "abs_logit", "logit_sq", "logit_sigmoid", "logit_cube"]
     feature_cols += ["cs_ret", "top1_sim", "top2_sim", "top3_sim", "delta12", "count_sim_ge_t"]
@@ -96,8 +119,11 @@ def select_feature_cols(df, logit_col):
         feature_cols.append("top1")
     if "top2" in df.columns:
         feature_cols.append("top2")
+    if "top3" in df.columns:
+        feature_cols.append("top3")
     if "gap12" in df.columns or ("top1" in df.columns and "top2" in df.columns):
         feature_cols.append("margin")
+    feature_cols += ["topk_gap", "topk_ratio", "topk_entropy", "score_span"]
     if "mean_top3" in df.columns or "mean_top5" in df.columns:
         feature_cols.append("topk_mean")
     if "std_top3" in df.columns or "std_top5" in df.columns:
@@ -116,6 +142,8 @@ def main():
     ap.add_argument("--out_model", required=True)
     ap.add_argument("--out_md", required=True)
     ap.add_argument("--c_stage2_list", type=float, nargs="+")
+    ap.add_argument("--objective", choices=["min_cost", "min_uncertain", "min_route"], default="min_cost")
+    ap.add_argument("--model_type", choices=["logreg", "hgb"], default="logreg")
     args = ap.parse_args()
 
     df = pd.read_parquet(args.in_path)
@@ -140,7 +168,13 @@ def main():
     )
 
     class_weight = "balanced" if args.track == "fever" else None
-    model = fit(train_df, feature_cols, args.y_col, args.logit_col, class_weight=class_weight)
+    if args.model_type == "logreg":
+        model = fit(train_df, feature_cols, args.y_col, args.logit_col, class_weight=class_weight)
+    else:
+        hgb = HistGradientBoostingClassifier(max_depth=3, learning_rate=0.1, max_iter=200)
+        calib = CalibratedClassifierCV(hgb, method="sigmoid", cv=3)
+        calib.fit(train_df[feature_cols].to_numpy(), train_df[args.y_col].to_numpy())
+        model = RouterV2(calib, feature_cols, args.logit_col, prob_flip=False)
     val_probs = model.predict_proba(val_df)
     val_y = val_df[args.y_col].to_numpy()
     auc = float(roc_auc_score(val_y, val_probs)) if len(np.unique(val_y)) > 1 else 0.0
@@ -174,6 +208,7 @@ def main():
     c_stage2_list = args.c_stage2_list if args.c_stage2_list else [1.0]
     default_gate = (0.01, 0.01)
     candidates = []
+    top10_route = []
     for c_stage2 in c_stage2_list:
         best_by_gate, results = select_thresholds(full_y, full_probs, alphas, betas, c_fp, c_fn, c_stage2, t_reject_max=t_reject_max)
         best, penalty, feasible = best_by_gate.get(default_gate, (None, None, None))
@@ -188,10 +223,24 @@ def main():
                 raise SystemExit("no thresholds satisfy fn_reject_rate <= 0.02")
         if best is None:
             continue
+        best_obj, feasible_obj = select_best_candidate(results, default_gate[0], default_gate[1], args.objective)
+        if best_obj is not None:
+            best = best_obj
+            feasible = feasible_obj
+            penalty = 0.0 if feasible_obj else penalty
         candidates.append((c_stage2, best, penalty, feasible))
+        if args.objective == "min_route" and not top10_route:
+            feasible_sorted = [r for r in results if r["fp_accept_rate"] <= default_gate[0] and r["fn_reject_rate"] <= default_gate[1]]
+            feasible_sorted.sort(key=lambda r: (r["uncertain_rate"], r["expected_cost"], -r["ok_rate"]))
+            top10_route = feasible_sorted[:10]
     if not candidates:
         raise SystemExit("no threshold candidates")
-    candidates.sort(key=lambda x: (not x[3], x[1]["expected_cost"], x[1]["uncertain_rate"]))
+    if args.objective == "min_route":
+        candidates.sort(key=lambda x: (not x[3], x[1]["uncertain_rate"], x[1]["expected_cost"], -x[1]["ok_rate"]))
+    elif args.objective == "min_uncertain":
+        candidates.sort(key=lambda x: (not x[3], x[1]["uncertain_rate"], x[1]["expected_cost"], -x[1]["ok_rate"]))
+    else:
+        candidates.sort(key=lambda x: (not x[3], x[1]["expected_cost"], x[1]["uncertain_rate"]))
     ship_c, best, penalty, feasible = candidates[0]
     if best is None:
         raise SystemExit("no threshold candidates")
@@ -217,6 +266,8 @@ def main():
     lines.append(f"- logit_col: `{args.logit_col}`")
     lines.append(f"- y_col: `{args.y_col}`")
     lines.append(f"- feature_cols: `{', '.join(feature_cols)}`")
+    lines.append(f"- model_type: `{args.model_type}`")
+    lines.append(f"- objective: `{args.objective}`")
     lines.append(f"- out_model: `{args.out_model}`")
     lines.append(f"- threshold_selection: `full_data`")
     lines.append("")
@@ -269,6 +320,23 @@ def main():
             p=f"{pen:.4f}",
         ))
     lines.append("")
+    if args.objective == "min_route":
+        lines.append("Top 10 by route")
+        lines.append("")
+        lines.append("| t_accept | t_reject | fp_accept_rate | fn_reject_rate | uncertain_rate | stage2_route_rate | expected_cost | feasible |")
+        lines.append("|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for r in top10_route:
+            lines.append("| {ta} | {tr} | {fp} | {fn} | {u} | {sr} | {ec} | {f} |".format(
+                ta=f"{r['t_accept']:.4f}",
+                tr=f"{r['t_reject']:.4f}",
+                fp=f"{r['fp_accept_rate']:.4f}",
+                fn=f"{r['fn_reject_rate']:.4f}",
+                u=f"{r['uncertain_rate']:.4f}",
+                sr=f"{r['uncertain_rate']:.4f}",
+                ec=f"{r['expected_cost']:.4f}",
+                f=str(r["fp_accept_rate"] <= default_gate[0] and r["fn_reject_rate"] <= default_gate[1]),
+            ))
+        lines.append("")
     lines.append("Calibration bins")
     lines.append("")
     lines.append("| bin | count | avg_prob | frac_pos |")

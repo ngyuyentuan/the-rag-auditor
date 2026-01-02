@@ -9,8 +9,12 @@ from datetime import datetime, timezone
 
 P = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path[:0] = [P]
+SCRIPTS_DIR = os.path.dirname(__file__)
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 
 from src.utils.buffer import compute_cs_ret_from_logit, decide_route
+from _artifact_locator import locate_scifact_artifacts
 import faiss
 import numpy as np
 import pandas as pd
@@ -76,24 +80,24 @@ def load_sample(path):
     return rows
 
 
-def ensure_sample(sample_path, track, n, seed):
+def ensure_sample(sample_path, track, n, seed, df):
     if sample_path and os.path.exists(sample_path):
         return sample_path
     if not sample_path:
         sample_path = f"runs/day12_{track}_e2e_sample.jsonl"
-    cmd = [
-        sys.executable,
-        "scripts/day12_sample_500.py",
-        "--track",
-        track,
-        "--n",
-        str(n),
-        "--seed",
-        str(seed),
-        "--out",
-        sample_path,
-    ]
-    subprocess.check_call(cmd)
+    row_idxs = df["row_idx"].to_list()
+    rng = np.random.default_rng(seed)
+    count = min(int(n), len(row_idxs))
+    if count <= 0:
+        raise SystemExit("no rows available for sampling")
+    if count < len(row_idxs):
+        picks = rng.choice(row_idxs, size=count, replace=False)
+    else:
+        picks = row_idxs
+    os.makedirs(os.path.dirname(sample_path), exist_ok=True)
+    with open(sample_path, "w", encoding="utf-8") as f:
+        for idx in picks:
+            f.write(json.dumps({"row_idx": int(idx)}) + "\n")
     return sample_path
 
 
@@ -291,6 +295,23 @@ def set_seed(seed):
     torch.manual_seed(seed)
 
 
+def parse_demo_roots():
+    demo_path = "reports/demo_stage1.md"
+    if not os.path.exists(demo_path):
+        return []
+    roots = []
+    with open(demo_path, "r", encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith("- in_path:"):
+                parts = s.split(chr(96))
+                if len(parts) >= 2 and parts[1]:
+                    p = parts[1]
+                    roots.append(os.path.dirname(p))
+                    roots.append(os.path.dirname(os.path.dirname(p)))
+    return [r for r in roots if r]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--track", required=True, choices=["scifact", "fever"])
@@ -332,7 +353,7 @@ def main():
     t_lower = float(t.get("t_lower"))
     t_upper = float(t.get("t_upper"))
 
-    sample_path = ensure_sample(args.sample, args.track, args.n, args.seed)
+    sample_path = ensure_sample(args.sample, args.track, args.n, args.seed, df)
     sample_rows = load_sample(sample_path)
 
     rng = np.random.default_rng(args.seed)
@@ -342,30 +363,60 @@ def main():
     doc_texts = []
     emb_model_name = ""
     index_path = ""
+    scifact_queries_jsonl = None
 
     need_stage2_data = (not args.dry_run_stage2) and (args.stage2_policy != "never" or args.baseline_mode == "always_stage2")
 
+    stage2_data_ready = False
+    stage2_missing_reason = ""
     if need_stage2_data:
         if args.track == "scifact":
             queries_jsonl = args.queries_jsonl or "data/beir_scifact/scifact/queries.jsonl"
             corpus_jsonl = args.corpus_jsonl or "data/beir_scifact/scifact/corpus.jsonl"
             index_path = args.index_path or "artifacts/scifact.faiss.index"
             meta_path = args.meta_path or "artifacts/scifact_faiss_meta.json"
-            queries = load_scifact_queries(queries_jsonl)
-            doc_ids, doc_texts = load_scifact_corpus(corpus_jsonl)
-            emb_model_name = load_emb_model(meta_path, "sentence-transformers/allenai-specter")
+            required_paths = [queries_jsonl, corpus_jsonl, index_path, meta_path]
+            missing = [p for p in required_paths if not os.path.exists(p)]
+            if missing:
+                extra_roots = [
+                    "/mnt/c/Users/nguye/Downloads",
+                    "/mnt/c/Users/nguye/Documents",
+                ]
+                extra_roots.extend(parse_demo_roots())
+                found = locate_scifact_artifacts(P, extra_roots)
+                if found:
+                    queries_jsonl = found.get("queries_jsonl", queries_jsonl)
+                    corpus_jsonl = found.get("corpus_jsonl", corpus_jsonl)
+                    index_path = found.get("index_path", index_path)
+                    meta_path = found.get("meta_path", meta_path)
+                    print("[info] scifact artifacts:", json.dumps(found, ensure_ascii=False))
+                required_paths = [queries_jsonl, corpus_jsonl, index_path, meta_path]
+            scifact_queries_jsonl = queries_jsonl
         else:
             corpus_jsonl = args.corpus_jsonl or "artifacts/fever_corpus.jsonl"
             index_path = args.index_path or "artifacts/fever.faiss.index"
             meta_path = args.meta_path or "artifacts/fever_faiss_meta.json"
-            queries = load_fever_claims(args.fever_dev_jsonl)
-            doc_ids, doc_texts = load_fever_corpus(corpus_jsonl)
-            emb_model_name = load_emb_model(meta_path, "sentence-transformers/all-MiniLM-L6-v2")
+            required_paths = [args.fever_dev_jsonl, corpus_jsonl, index_path, meta_path]
+        missing = [p for p in required_paths if not os.path.exists(p)]
+        if missing:
+            stage2_missing_reason = "missing_stage2_artifacts"
+            print("[warn] stage2 artifacts missing; skipping stage2:", ", ".join(missing))
+            stage2_data_ready = False
+        else:
+            stage2_data_ready = True
+            if args.track == "scifact":
+                queries = load_scifact_queries(queries_jsonl)
+                doc_ids, doc_texts = load_scifact_corpus(corpus_jsonl)
+                emb_model_name = load_emb_model(meta_path, "sentence-transformers/allenai-specter")
+            else:
+                queries = load_fever_claims(args.fever_dev_jsonl)
+                doc_ids, doc_texts = load_fever_corpus(corpus_jsonl)
+                emb_model_name = load_emb_model(meta_path, "sentence-transformers/all-MiniLM-L6-v2")
 
     if args.track == "fever":
         gold_map = load_fever_gold(args.fever_dev_jsonl)
     else:
-        gold_map = load_scifact_qrels(args.queries_jsonl or "data/beir_scifact/scifact/queries.jsonl")
+        gold_map = load_scifact_qrels(scifact_queries_jsonl or args.queries_jsonl or "data/beir_scifact/scifact/queries.jsonl")
 
     index = None
     bienc = None
@@ -373,7 +424,7 @@ def main():
     nli_model = None
     nli_tokenizer = None
 
-    if need_stage2_data:
+    if need_stage2_data and stage2_data_ready:
         index = faiss.read_index(index_path)
         try:
             bienc = SentenceTransformer(emb_model_name, device=device)
@@ -419,142 +470,189 @@ def main():
     p_reject = calibrated_decisions.count("REJECT") / n_cal
     p_uncertain = calibrated_decisions.count("UNCERTAIN") / n_cal
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as out:
-        for item in sample_rows:
-            row_idx = item.get("row_idx")
-            if row_idx is None:
-                qid = item.get("qid")
-                if qid is None:
-                    continue
-                rows = df[df["qid"] == qid]
-                if rows.empty:
-                    continue
-                row = rows.iloc[0]
-            else:
-                if int(row_idx) not in df_idx.index:
-                    continue
-                row = df_idx.loc[int(row_idx)]
+    rows_info = []
+    for item in sample_rows:
+        row_idx = item.get("row_idx")
+        if row_idx is None:
+            qid = item.get("qid")
+            if qid is None:
+                continue
+            rows = df[df["qid"] == qid]
+            if rows.empty:
+                continue
+            row = rows.iloc[0]
+        else:
+            if int(row_idx) not in df_idx.index:
+                continue
+            row = df_idx.loc[int(row_idx)]
 
-            qid = row["qid"] if "qid" in row else int(row["row_idx"])
-            y = int(row[args.y_col])
-            raw_logit = float(row[logit_col])
+        qid = row["qid"] if "qid" in row else int(row["row_idx"])
+        y = int(row[args.y_col])
+        raw_logit = float(row[logit_col])
 
-            t0 = time.perf_counter()
-            cs_ret = compute_cs_ret_from_logit(raw_logit, tau)
-            decision, reason = decide_route(cs_ret, t_lower, t_upper)
-            if args.baseline_mode == "random":
-                decision = rng.choice(["ACCEPT", "REJECT", "UNCERTAIN"], p=[p_accept, p_reject, p_uncertain])
-                reason = "random_baseline(p_accept={:.4f},p_reject={:.4f},p_uncertain={:.4f})".format(
-                    p_accept, p_reject, p_uncertain
+        t0 = time.perf_counter()
+        cs_ret = compute_cs_ret_from_logit(raw_logit, tau)
+        decision, reason = decide_route(cs_ret, t_lower, t_upper)
+        if args.baseline_mode == "random":
+            decision = rng.choice(["ACCEPT", "REJECT", "UNCERTAIN"], p=[p_accept, p_reject, p_uncertain])
+            reason = "random_baseline(p_accept={:.4f},p_reject={:.4f},p_uncertain={:.4f})".format(
+                p_accept, p_reject, p_uncertain
+            )
+        stage1_ms = (time.perf_counter() - t0) * 1000.0
+
+        if args.baseline_mode == "always_stage2":
+            stage2_should_run = True
+        elif args.stage2_policy == "always":
+            stage2_should_run = True
+        elif args.stage2_policy == "never":
+            stage2_should_run = False
+        else:
+            stage2_should_run = decision == "UNCERTAIN"
+
+        rows_info.append({
+            "row": row,
+            "qid": qid,
+            "y": y,
+            "raw_logit": raw_logit,
+            "cs_ret": cs_ret,
+            "decision": decision,
+            "reason": reason,
+            "stage1_ms": stage1_ms,
+            "stage2_should_run": stage2_should_run,
+            "rerank_ms": 0.0,
+            "nli_ms": 0.0,
+            "rerank_info": {},
+            "nli_info": {},
+            "stage2_ran": False,
+            "top_doc_id": None,
+        })
+
+    stage2_jobs = []
+    for i, info in enumerate(rows_info):
+        if not info["stage2_should_run"]:
+            continue
+        if not stage2_data_ready:
+            info["rerank_info"] = {"skipped": True, "reason": stage2_missing_reason}
+            info["nli_info"] = {"skipped": True, "reason": stage2_missing_reason}
+            continue
+        if args.dry_run_stage2:
+            info["stage2_ran"] = True
+            info["rerank_info"] = {"skipped": True}
+            info["nli_info"] = {"skipped": True}
+            continue
+        qid = info["qid"]
+        if isinstance(queries, dict):
+            query = queries.get(str(qid), queries.get(qid))
+        else:
+            query = queries[int(qid)]
+        stage2_jobs.append((i, qid, query))
+
+    if stage2_jobs:
+        queries_list = [j[2] for j in stage2_jobs]
+        qemb = bienc.encode(queries_list, convert_to_numpy=True, normalize_embeddings=True).astype(np.float32)
+        _, I = index.search(qemb, args.rerank_topk)
+        for j, (idx, qid, query) in enumerate(stage2_jobs):
+            cand_idx = [int(i) for i in I[j] if 0 <= int(i) < len(doc_texts)]
+            candidates = [(i, doc_texts[i]) for i in cand_idx]
+            t1 = time.perf_counter()
+            try:
+                rr_idxs, rr_scores = rerank_with_model(
+                    query=query,
+                    candidates=candidates,
+                    model=cross_encoder,
+                    top_n=args.rerank_keep,
+                    batch_size=args.batch_size,
                 )
-            stage1_ms = (time.perf_counter() - t0) * 1000.0
-
-            if args.baseline_mode == "always_stage2":
-                stage2_should_run = True
-            elif args.stage2_policy == "always":
-                stage2_should_run = True
-            elif args.stage2_policy == "never":
-                stage2_should_run = False
-            else:
-                stage2_should_run = decision == "UNCERTAIN"
-
-            rerank_ms = 0.0
-            nli_ms = 0.0
-            rerank_info = {}
-            nli_info = {}
-            stage2_ran = False
-            top_doc_id = None
-
-            if stage2_should_run:
-                if args.dry_run_stage2:
-                    stage2_ran = True
-                    rerank_info = {"skipped": True}
-                    nli_info = {"skipped": True}
+            except RuntimeError as e:
+                if device == "cuda" and "out of memory" in str(e).lower():
+                    torch.cuda.empty_cache()
+                    device = "cpu"
+                    cross_encoder = CrossEncoder(args.cross_encoder, device=device)
+                    rr_idxs, rr_scores = rerank_with_model(
+                        query=query,
+                        candidates=candidates,
+                        model=cross_encoder,
+                        top_n=args.rerank_keep,
+                        batch_size=args.batch_size,
+                    )
                 else:
-                    query = queries[qid] if isinstance(queries, dict) else queries[int(qid)]
-                    t1 = time.perf_counter()
-                    qemb = bienc.encode([query], convert_to_numpy=True, normalize_embeddings=True).astype(np.float32)
-                    _, I = index.search(qemb, args.rerank_topk)
-                    cand_idx = [int(i) for i in I[0] if 0 <= int(i) < len(doc_texts)]
-                    candidates = [(i, doc_texts[i]) for i in cand_idx]
-                    try:
-                        rr_idxs, rr_scores = rerank_with_model(
-                            query=query,
-                            candidates=candidates,
-                            model=cross_encoder,
-                            top_n=args.rerank_keep,
-                            batch_size=args.batch_size,
-                        )
-                    except RuntimeError as e:
-                        if device == "cuda" and "out of memory" in str(e).lower():
-                            torch.cuda.empty_cache()
-                            device = "cpu"
-                            cross_encoder = CrossEncoder(args.cross_encoder, device=device)
-                            rr_idxs, rr_scores = rerank_with_model(
-                                query=query,
-                                candidates=candidates,
-                                model=cross_encoder,
-                                top_n=args.rerank_keep,
-                                batch_size=args.batch_size,
-                            )
-                        else:
-                            raise
-                    rerank_ms = (time.perf_counter() - t1) * 1000.0
-                    stage2_ran = True
+                    raise
+            rerank_ms = (time.perf_counter() - t1) * 1000.0
+            rows_info[idx]["stage2_ran"] = True
+            rows_info[idx]["rerank_ms"] = rerank_ms
 
-                    docid_map = {i: doc_ids[i] for i in cand_idx if i < len(doc_ids)}
-                    reranked_docids = [docid_map.get(i, str(i)) for i in rr_idxs]
-                    reranked_scores = [float(s) for s in rr_scores]
-                    top_doc_id = reranked_docids[0] if reranked_docids else None
-                    top_score = reranked_scores[0] if reranked_scores else None
-                    rerank_info = {
-                        "top_k": args.rerank_topk,
-                        "keep": args.rerank_keep,
-                        "model": args.cross_encoder,
-                        "doc_ids": reranked_docids,
-                        "scores": reranked_scores,
-                        "top_doc_id": top_doc_id,
-                        "top_score": top_score,
-                    }
+            docid_map = {i: doc_ids[i] for i in cand_idx if i < len(doc_ids)}
+            reranked_docids = [docid_map.get(i, str(i)) for i in rr_idxs]
+            reranked_scores = [float(s) for s in rr_scores]
+            top_doc_id = reranked_docids[0] if reranked_docids else None
+            top_score = reranked_scores[0] if reranked_scores else None
+            rows_info[idx]["top_doc_id"] = top_doc_id
+            rows_info[idx]["rerank_info"] = {
+                "top_k": args.rerank_topk,
+                "keep": args.rerank_keep,
+                "model": args.cross_encoder,
+                "doc_ids": reranked_docids,
+                "scores": reranked_scores,
+                "top_doc_id": top_doc_id,
+                "top_score": top_score,
+            }
 
-                    t2 = time.perf_counter()
-                    topn = max(1, min(args.nli_topn, len(reranked_docids)))
-                    evidence_texts = [doc_texts[i] for i in rr_idxs[:topn]] if topn > 0 else []
-                    pairs = [(evidence_texts[i], query) for i in range(len(evidence_texts))]
-                    try:
-                        probs = nli_infer(pairs, nli_model, nli_tokenizer, device, args.batch_size) if pairs else []
-                    except RuntimeError as e:
-                        if device == "cuda" and "out of memory" in str(e).lower():
-                            torch.cuda.empty_cache()
-                            device = "cpu"
-                            nli_model = nli_model.to(device)
-                            probs = nli_infer(pairs, nli_model, nli_tokenizer, device, args.batch_size) if pairs else []
-                        else:
-                            raise
-                    nli_ms = (time.perf_counter() - t2) * 1000.0
+            t2 = time.perf_counter()
+            topn = max(1, min(args.nli_topn, len(reranked_docids)))
+            evidence_texts = [doc_texts[i] for i in rr_idxs[:topn]] if topn > 0 else []
+            pairs = [(evidence_texts[i], query) for i in range(len(evidence_texts))]
+            try:
+                probs = nli_infer(pairs, nli_model, nli_tokenizer, device, args.batch_size) if pairs else []
+            except RuntimeError as e:
+                if device == "cuda" and "out of memory" in str(e).lower():
+                    torch.cuda.empty_cache()
+                    device = "cpu"
+                    nli_model = nli_model.to(device)
+                    probs = nli_infer(pairs, nli_model, nli_tokenizer, device, args.batch_size) if pairs else []
+                else:
+                    raise
+            nli_ms = (time.perf_counter() - t2) * 1000.0
 
-                    id2label = getattr(nli_model.config, "id2label", None) or {}
-                    labels = [id2label.get(i, str(i)) for i in range(len(probs[0]))] if probs else []
-                    top_label = None
-                    top_prob = None
-                    if probs:
-                        p0 = probs[0]
-                        k = int(np.argmax(p0))
-                        top_label = labels[k] if labels else str(k)
-                        top_prob = float(p0[k])
-                    label_probs = {}
-                    if probs and labels:
-                        label_probs = {labels[i]: float(probs[0][i]) for i in range(len(labels))}
-                    nli_info = {
-                        "topn": topn,
-                        "labels": labels,
-                        "probs": probs[0] if probs else [],
-                        "top_label": top_label,
-                        "top_prob": top_prob,
-                        "label_probs": label_probs,
-                        "model": args.nli_model,
-                    }
+            id2label = getattr(nli_model.config, "id2label", None) or {}
+            labels = [id2label.get(i, str(i)) for i in range(len(probs[0]))] if probs else []
+            top_label = None
+            top_prob = None
+            if probs:
+                p0 = probs[0]
+                k = int(np.argmax(p0))
+                top_label = labels[k] if labels else str(k)
+                top_prob = float(p0[k])
+            label_probs = {}
+            if probs and labels:
+                label_probs = {labels[i]: float(probs[0][i]) for i in range(len(labels))}
+            rows_info[idx]["nli_ms"] = nli_ms
+            rows_info[idx]["nli_info"] = {
+                "topn": topn,
+                "labels": labels,
+                "probs": probs[0] if probs else [],
+                "top_label": top_label,
+                "top_prob": top_prob,
+                "label_probs": label_probs,
+                "model": args.nli_model,
+            }
+
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    tmp_out = args.out + ".tmp"
+    with open(tmp_out, "w", encoding="utf-8") as out:
+        for info in rows_info:
+            row = info["row"]
+            qid = info["qid"]
+            y = info["y"]
+            cs_ret = info["cs_ret"]
+            decision = info["decision"]
+            reason = info["reason"]
+            stage1_ms = info["stage1_ms"]
+            rerank_ms = info["rerank_ms"]
+            nli_ms = info["nli_ms"]
+            rerank_info = info["rerank_info"]
+            nli_info = info["nli_info"]
+            stage2_ran = info["stage2_ran"]
+            top_doc_id = info["top_doc_id"]
 
             gold_entry = get_gold_entry(gold_map, qid)
             gold_verdict = None
@@ -576,6 +674,31 @@ def main():
                 pred_has_evidence = pred_doc_id in set(gold_doc_ids) if pred_doc_id is not None else False
 
             total_ms = stage1_ms + rerank_ms + nli_ms
+            features_present = {
+                "top1": "top1" in row,
+                "top2": "top2" in row,
+                "margin": "gap12" in row,
+                "topk_mean": "mean_top3" in row or "mean_top5" in row,
+                "topk_std": "std_top3" in row or "std_top5" in row,
+            }
+            if os.environ.get("RAG_AUDITOR_DEBUG") == "1" and t_upper <= t_lower:
+                raise SystemExit("invalid thresholds: t_upper must be > t_lower")
+            router_debug = None
+            if os.environ.get("RAG_AUDITOR_DEBUG") == "1":
+                router_debug = {
+                    "p_hat": None,
+                    "t_accept": None,
+                    "t_reject": None,
+                    "router_decision": decision,
+                    "route_decision": decision,
+                    "route_source": "baseline",
+                }
+            if args.stage2_policy == "always":
+                route_requested = True
+            elif args.stage2_policy == "uncertain_only":
+                route_requested = decision == "UNCERTAIN"
+            else:
+                route_requested = False
             payload = {
                 "baseline": {"name": args.baseline_mode},
                 "metadata": {
@@ -589,15 +712,29 @@ def main():
                     "cs_ret": cs_ret,
                     "route_decision": decision,
                     "route_reason": reason,
+                    "router": {
+                        "name": "baseline",
+                        "p_hat": None,
+                        "t_accept": None,
+                        "t_reject": None,
+                        "features_present": features_present,
+                    },
+                    "router_decision": decision,
+                    "route_source": "baseline",
                     "t_lower": t_lower,
                     "t_upper": t_upper,
                     "tau": tau,
+                    "router_debug": router_debug,
                 },
                 "stage2": {
                     "ran": stage2_ran,
                     "policy": args.stage2_policy,
                     "rerank": rerank_info,
                     "nli": nli_info,
+                    "route_requested": route_requested,
+                    "capped": False,
+                    "cap_budget": None,
+                    "capped_reason": None,
                 },
                 "timing_ms": {
                     "stage1_ms": stage1_ms,
@@ -618,8 +755,37 @@ def main():
                 },
             }
             out.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            out.flush()
 
+    os.replace(tmp_out, args.out)
     print("[ok] wrote:", args.out)
+    if os.environ.get("RAG_AUDITOR_DEBUG") == "1":
+        total = len(rows_info)
+        route_count = 0
+        ran_count = 0
+        missing_count = 0
+        error_count = 0
+        examples = []
+        for info in rows_info:
+            if info["decision"] == "UNCERTAIN":
+                route_count += 1
+            if info["stage2_ran"]:
+                ran_count += 1
+            if info["stage2_should_run"] and not info["stage2_ran"]:
+                if not stage2_data_ready:
+                    missing_count += 1
+                    if len(examples) < 10:
+                        examples.append((info["qid"], "missing_stage2_artifacts"))
+                elif args.dry_run_stage2:
+                    if len(examples) < 10:
+                        examples.append((info["qid"], "dry_run_stage2"))
+                else:
+                    error_count += 1
+                    if len(examples) < 10:
+                        examples.append((info["qid"], "stage2_error"))
+        print("[debug] total", total, "route_count", route_count, "ran_count", ran_count, "missing", missing_count, "error", error_count)
+        if examples:
+            print("[debug] route_uncertain_but_not_ran", examples)
 
 
 if __name__ == "__main__":

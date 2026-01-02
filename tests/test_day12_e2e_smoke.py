@@ -53,6 +53,7 @@ def check_jsonl(path):
             assert key in row
 
 
+@pytest.mark.slow
 def test_day12_e2e_smoke(tmp_path):
     import pandas as pd
 
@@ -87,6 +88,10 @@ def test_day12_e2e_smoke(tmp_path):
         row = json.loads(f.readline())
     assert row["stage2"]["rerank"].get("skipped") is True
     assert row["stage2"]["nli"].get("skipped") is True
+    assert "route_requested" in row["stage2"]
+    assert "capped" in row["stage2"]
+    assert "cap_budget" in row["stage2"]
+    assert "capped_reason" in row["stage2"]
 
     out_real = tmp_path / "day12_scifact_500_e2e_real.jsonl"
     repo_root = pathlib.Path(__file__).resolve().parents[1]

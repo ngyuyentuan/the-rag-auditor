@@ -129,7 +129,12 @@ def main():
     top10 = {}
     for b in budgets:
         candidates = [r for r in results if r["uncertain_rate"] <= b]
-        candidates.sort(key=lambda r: (-r["ok_rate"], r["fp_accept_rate"] + r["fn_reject_rate"], r["uncertain_rate"]))
+        candidates.sort(key=lambda r: (
+            r["fp_accept_rate"],
+            r["fn_reject_rate"],
+            -r["ok_rate"],
+            r["uncertain_rate"],
+        ))
         picks[b] = candidates[0] if candidates else None
         top10[b] = candidates[:10] if candidates else []
 
@@ -196,13 +201,15 @@ def main():
         else:
             lines.append(f"- t_lower: `{pick['t_lower']}`")
             lines.append(f"- t_upper: `{pick['t_upper']}`")
+            lines.append(f"- fp_accept_rate: `{pick['fp_accept_rate']}`")
+            lines.append(f"- fn_reject_rate: `{pick['fn_reject_rate']}`")
             lines.append(f"- ok_rate: `{pick['ok_rate']}`")
             lines.append(f"- uncertain_rate: `{pick['uncertain_rate']}`")
         lines.append("")
 
     lines.append("Interpretation")
     lines.append("")
-    lines.append("Lower uncertain budgets reduce deferrals and can increase fp or fn rates. Higher budgets allow more deferrals and typically improve ok_rate. Use the budget that matches expected stage2 capacity.")
+    lines.append("Selection prioritizes minimizing fp_accept_rate, then fn_reject_rate, then ok_rate, then uncertain_rate. Lower uncertain budgets reduce deferrals but can increase fp or fn; higher budgets allow more deferrals and typically improve ok_rate. Use the budget that matches expected stage2 capacity.")
     lines.append("")
 
     out_md.write_text("\n".join(lines), encoding="utf-8")

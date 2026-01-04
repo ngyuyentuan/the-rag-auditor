@@ -1,176 +1,126 @@
 import argparse
 import json
+import math
 from pathlib import Path
 
 
-def iter_jsonl(path: Path):
+def iter_jsonl(path):
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:
-                yield json.loads(line)
-
-
-def map_nli_to_verdict(label):
-    if label == "ENTAILMENT":
-        return "SUPPORTS"
-    if label == "CONTRADICTION":
-        return "REFUTES"
-    if label == "NEUTRAL":
-        return "NEI"
-    return None
-
-
-def load_scifact_qrels(scifact_dir: Path):
-    qrels_dir = scifact_dir / "qrels"
-    for name in ["test.tsv", "dev.tsv", "train.tsv", "qrels.tsv"]:
-        path = qrels_dir / name
-        if path.exists():
-            break
-    else:
-        return {}
-    gold = {}
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            parts = line.strip().split("\t")
-            if len(parts) < 4:
+            if not line:
                 continue
-            qid, _, doc_id, rel = parts[0], parts[1], parts[2], parts[3]
             try:
-                rel_val = float(rel)
+                yield json.loads(line)
             except Exception:
-                rel_val = 0.0
-            if rel_val <= 0:
                 continue
-            gold.setdefault(str(qid), set()).add(str(doc_id))
-    return {k: {"verdict": None, "doc_ids": sorted(v)} for k, v in gold.items()}
 
 
-def load_fever_gold(dev_jsonl: Path):
-    gold = {}
-    if not dev_jsonl.exists():
-        return gold
-    for idx, row in enumerate(iter_jsonl(dev_jsonl)):
-        qid = row.get("id", row.get("_id"))
-        if qid is None:
-            qid = row.get("qid", row.get("claim_id", row.get("i", idx)))
-        qid = str(qid)
-        label = row.get("label", row.get("verdict"))
-        verdict = str(label) if isinstance(label, str) and label.strip() else None
-        doc_ids = set()
-        evidence = row.get("evidence")
-        if isinstance(evidence, list):
-            for item in evidence:
-                if isinstance(item, list) and len(item) >= 3:
-                    doc_id = item[2]
-                    if doc_id is not None:
-                        doc_ids.add(str(doc_id))
-                elif isinstance(item, list):
-                    for ev in item:
-                        if isinstance(ev, list) and len(ev) >= 3:
-                            doc_id = ev[2]
-                            if doc_id is not None:
-                                doc_ids.add(str(doc_id))
-        gold[qid] = {"verdict": verdict, "doc_ids": sorted(doc_ids)}
-    return gold
+def percentile(values, p):
+    if not values:
+        return None
+    vals = sorted(values)
+    if len(vals) == 1:
+        return vals[0]
+    k = (len(vals) - 1) * (p / 100.0)
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        return vals[int(k)]
+    d0 = vals[int(f)] * (c - k)
+    d1 = vals[int(c)] * (k - f)
+    return d0 + d1
 
 
-def compute_metrics(rows, gold_map):
-    total = 0
-    verdict_total = 0
-    verdict_correct = 0
-    evidence_total = 0
-    evidence_hit = 0
-    for row in rows:
-        total += 1
-        metadata = row.get("metadata", {})
-        qid = metadata.get("qid")
-        gold_entry = gold_map.get(str(qid)) if qid is not None else None
-        gold_verdict = None
-        gold_doc_ids = []
-        if gold_entry:
-            gold_verdict = gold_entry.get("verdict")
-            gold_doc_ids = gold_entry.get("doc_ids", [])
-        pred = row.get("pred", {})
-        pred_verdict = pred.get("pred_verdict")
-        pred_doc_id = pred.get("pred_doc_id")
-        if pred_verdict is None:
-            nli = (row.get("stage2") or {}).get("nli") or {}
-            pred_verdict = map_nli_to_verdict(nli.get("top_label"))
-        if pred_verdict is None:
-            decision = (row.get("stage1") or {}).get("route_decision")
-            if decision == "ACCEPT":
-                pred_verdict = "SUPPORTS"
-            elif decision == "REJECT":
-                pred_verdict = "REFUTES"
-        if gold_verdict is not None and pred_verdict is not None:
-            verdict_total += 1
-            if pred_verdict == gold_verdict:
-                verdict_correct += 1
-        if gold_doc_ids and pred_doc_id is not None:
-            evidence_total += 1
-            if str(pred_doc_id) in set(gold_doc_ids):
-                evidence_hit += 1
-    return {
-        "n": total,
-        "coverage_gold_verdict": verdict_total / total if total else 0.0,
-        "coverage_gold_evidence": evidence_total / total if total else 0.0,
-        "verdict_accuracy": verdict_correct / verdict_total if verdict_total else 0.0,
-        "evidence_hit_rate": evidence_hit / evidence_total if evidence_total else 0.0,
-    }
+def format_float(x):
+    return f"{x:.4f}"
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--runs", nargs="+", required=True)
-    ap.add_argument("--scifact_dir", default="data/beir_scifact/scifact")
-    ap.add_argument("--fever_dev_jsonl", default="data/fever_splits/dev.jsonl")
-    ap.add_argument("--out_md", default="reports/day12_end_to_end_eval.md")
-    ap.add_argument("--out_json", default="reports/day12_end_to_end_eval.json")
+    ap.add_argument("--in_jsonl", required=True)
+    ap.add_argument("--out_md", required=True)
     args = ap.parse_args()
 
-    scifact_gold = load_scifact_qrels(Path(args.scifact_dir))
-    fever_gold = load_fever_gold(Path(args.fever_dev_jsonl))
+    n = 0
+    stage2_ran = 0
+    accept = reject = uncertain = 0
+    gold_total = 0
+    gold_correct = 0
+    ev_total = 0
+    hit1 = 0
+    hit5 = 0
+    total_ms = []
 
-    rows_out = []
-    for run_path in args.runs:
-        path = Path(run_path)
-        rows = list(iter_jsonl(path))
-        track = None
-        if rows:
-            track = (rows[0].get("metadata") or {}).get("track")
-        gold_map = scifact_gold if track == "scifact" else fever_gold
-        metrics = compute_metrics(rows, gold_map)
-        rows_out.append({
-            "path": str(path),
-            "track": track,
-            "metrics": metrics,
-        })
+    for row in iter_jsonl(Path(args.in_jsonl)):
+        n += 1
+        stage1 = row.get("stage1", {}) or {}
+        decision = stage1.get("route_decision")
+        if decision == "ACCEPT":
+            accept += 1
+        elif decision == "REJECT":
+            reject += 1
+        else:
+            uncertain += 1
+        stage2 = row.get("stage2", {}) or {}
+        if stage2.get("ran") is True:
+            stage2_ran += 1
+        timing = row.get("timing_ms", {}) or {}
+        total_ms.append(float(timing.get("total_ms", 0.0)))
+        gold = row.get("gold", {}) or {}
+        pred = row.get("pred", {}) or {}
+        gold_verdict = gold.get("gold_verdict")
+        pred_verdict = pred.get("pred_verdict")
+        if gold_verdict is not None:
+            gold_total += 1
+            if pred_verdict == gold_verdict:
+                gold_correct += 1
+        gold_docs = gold.get("gold_evidence_doc_ids") or []
+        pred_docs = (stage2.get("rerank", {}) or {}).get("doc_ids") or []
+        if gold_docs:
+            ev_total += 1
+            gold_set = set(map(str, gold_docs))
+            if pred_docs:
+                if str(pred_docs[0]) in gold_set:
+                    hit1 += 1
+                if any(str(d) in gold_set for d in pred_docs[:5]):
+                    hit5 += 1
 
-    out_md = Path(args.out_md)
-    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out = Path(args.out_md)
+    out.parent.mkdir(parents=True, exist_ok=True)
     lines = []
-    lines.append("# Day12 End-to-End Evaluation")
+    lines.append("# Day12 End-to-End Eval")
     lines.append("")
-    lines.append("| track | run_path | n | coverage_gold_verdict | coverage_gold_evidence | verdict_accuracy | evidence_hit_rate |")
-    lines.append("|---|---|---:|---:|---:|---:|---:|")
-    for row in rows_out:
-        m = row["metrics"]
-        lines.append("| {track} | `{path}` | {n} | {cgv:.4f} | {cge:.4f} | {va:.4f} | {ehr:.4f} |".format(
-            track=row["track"],
-            path=row["path"],
-            n=m["n"],
-            cgv=m["coverage_gold_verdict"],
-            cge=m["coverage_gold_evidence"],
-            va=m["verdict_accuracy"],
-            ehr=m["evidence_hit_rate"],
-        ))
+    lines.append(f"- in_jsonl: `{args.in_jsonl}`")
+    lines.append(f"- rows: `{n}`")
     lines.append("")
-    out_md.write_text("\n".join(lines), encoding="utf-8")
-
-    out_json = Path(args.out_json)
-    out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(rows_out, ensure_ascii=False, indent=2), encoding="utf-8")
+    lines.append("| metric | value |")
+    lines.append("|---|---|")
+    lines.append(f"| stage2_rate | {format_float(stage2_ran / n if n else 0.0)} |")
+    lines.append(f"| accept_rate | {format_float(accept / n if n else 0.0)} |")
+    lines.append(f"| reject_rate | {format_float(reject / n if n else 0.0)} |")
+    lines.append(f"| uncertain_rate | {format_float(uncertain / n if n else 0.0)} |")
+    lines.append(f"| mean_ms | {format_float(sum(total_ms) / n if n else 0.0)} |")
+    lines.append(f"| p95_ms | {format_float(percentile(total_ms, 95) or 0.0)} |")
+    lines.append("")
+    lines.append("Gold evaluation")
+    lines.append("")
+    if gold_total:
+        lines.append(f"- coverage_gold_verdict: `{format_float(gold_total / n)}`")
+        lines.append(f"- verdict_accuracy: `{format_float(gold_correct / gold_total)}`")
+    else:
+        lines.append("- coverage_gold_verdict: `0.0000`")
+        lines.append("- verdict_accuracy: `n/a`")
+    if ev_total:
+        lines.append(f"- coverage_gold_evidence: `{format_float(ev_total / n)}`")
+        lines.append(f"- evidence_hit_at_1: `{format_float(hit1 / ev_total)}`")
+        lines.append(f"- evidence_hit_at_5: `{format_float(hit5 / ev_total)}`")
+    else:
+        lines.append("- coverage_gold_evidence: `0.0000`")
+        lines.append("- evidence_hit_at_1: `n/a`")
+        lines.append("- evidence_hit_at_5: `n/a`")
+    lines.append("")
+    out.write_text("\n".join(lines), encoding="utf-8")
 
 
 if __name__ == "__main__":

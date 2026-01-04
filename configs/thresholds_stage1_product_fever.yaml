@@ -1,0 +1,17 @@
+tau: 0.9957177012600404
+t_lower: 0.0721672686678491
+t_upper: 1.0
+seed: 14
+n: 200
+gates:
+  max_fp_accept:
+  - 0.01
+  - 0.02
+  max_fn_reject:
+  - 0.01
+  - 0.02
+  max_uncertain:
+  - 0.3
+  - 0.5
+  - 0.7
+fallback: baseline

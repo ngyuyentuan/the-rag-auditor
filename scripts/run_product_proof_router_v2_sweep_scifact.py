@@ -107,6 +107,8 @@ def main():
     lines = []
     lines.append("# Product Proof Router v2 SciFact Sweep")
     lines.append("")
+    lines.append("Note: Budget sweep is authoritative for shipping because stage2_budget changes stage2_ran/capped tradeoff.")
+    lines.append("")
     lines.append("| name | accept_rate | reject_rate | uncertain_rate | stage2_route_rate | stage2_ran_rate | capped_rate | fp_accept_rate | fn_reject_rate | ok_rate_stage1 | mean_ms | p95_ms |")
     lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for name, path in rows:

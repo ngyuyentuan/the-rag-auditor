@@ -234,9 +234,16 @@ def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject
     uncertain_list = []
     for idx, entry in enumerate(rows):
         if entry["router_decision"] == "UNCERTAIN" and entry["p_hat"] is not None:
-            score = min(entry["p_hat"] - t_reject, t_accept - entry["p_hat"])
+            score = 1.0 - abs(entry["p_hat"] - 0.5)
             uncertain_list.append((score, idx))
-    uncertain_list.sort(key=lambda x: x[0])
+        elif entry["router_decision"] == "UNCERTAIN":
+            stage1 = entry["row"].get("stage1") or {}
+            cs_ret = stage1.get("cs_ret")
+            if cs_ret is None:
+                cs_ret = 0.5
+            score = 1.0 - abs(float(cs_ret) - 0.5)
+            uncertain_list.append((score, idx))
+    uncertain_list.sort(key=lambda x: (-x[0], x[1]))
     keep = set()
     if budget_k is None:
         keep = {idx for _, idx in uncertain_list}
@@ -319,6 +326,7 @@ def apply_router_v2(in_jsonl, out_jsonl, router, feature_map, t_accept, t_reject
                 if budget_capped:
                     stage2["rerank"] = {"skipped": True, "reason": "budget_cap"}
                     stage2["nli"] = {"skipped": True, "reason": "budget_cap"}
+                    stage2["skipped_reason"] = "budget_cap"
                 timing["rerank_ms"] = 0.0
                 timing["nli_ms"] = 0.0
                 if "stage1_ms" in timing:

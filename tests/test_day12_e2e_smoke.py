@@ -164,3 +164,33 @@ def test_router_budget_cap_keeps_uncertain(tmp_path):
     assert out["stage2"]["capped"] is True
     assert out["stage2"]["capped_reason"] == "budget_cap"
     assert out["stage2"]["rerank"]["reason"] == "budget_cap"
+    assert out["stage2"]["skipped_reason"] == "budget_cap"
+
+
+def test_router_budget_cap_deterministic_priority(tmp_path):
+    from types import SimpleNamespace
+    import numpy as np
+
+    class DummyModel:
+        def predict_proba(self, x):
+            probs = []
+            for row in x:
+                p = float(row[0])
+                probs.append([1.0 - p, p])
+            return np.array(probs)
+
+    from scripts.run_product_proof_router_v2_matrix import apply_router_v2
+
+    in_path = tmp_path / "in.jsonl"
+    out_path = tmp_path / "out.jsonl"
+    rows = [
+        {"metadata": {"qid": "1"}, "stage1": {"route_decision": "UNCERTAIN", "route_reason": "baseline", "cs_ret": 0.5}, "stage2": {"ran": True}, "timing_ms": {"rerank_ms": 1.0, "nli_ms": 1.0, "total_ms": 2.0}, "ground_truth": {"y": 1}},
+        {"metadata": {"qid": "2"}, "stage1": {"route_decision": "UNCERTAIN", "route_reason": "baseline", "cs_ret": 0.9}, "stage2": {"ran": True}, "timing_ms": {"rerank_ms": 1.0, "nli_ms": 1.0, "total_ms": 2.0}, "ground_truth": {"y": 0}},
+    ]
+    in_path.write_text("\n".join([json.dumps(r) for r in rows]) + "\n", encoding="utf-8")
+    router = SimpleNamespace(model=DummyModel(), feature_cols=["f1"], logit_col="f1", prob_flip=False)
+    feature_map = {"1": np.array([0.5]), "2": np.array([0.9])}
+    apply_router_v2(in_path, out_path, router, feature_map, 0.8, 0.2, "uncertain_only", 0.5, {"f1": True})
+    out = [json.loads(line) for line in out_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    ran = [r["metadata"]["qid"] for r in out if r["stage2"]["ran"]]
+    assert ran == ["1"]

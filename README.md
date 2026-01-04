@@ -1,6 +1,6 @@
 # the-rag-auditor
 
-# RAG Auditor — Day10/Day11 (Codex Runner README)
+# RAG Auditor — Day10/Day11 
 
 This repo contains scripts to:
 1) build calibration datasets (SciFact / FEVER),
@@ -10,7 +10,7 @@ This repo contains scripts to:
 
 ---
 
-## Quick start (Codex)
+## Quick start 
 
 ### 0) Setup
 ```bash

@@ -1,0 +1,123 @@
+{
+  "generated": "2025-12-31T10:52:16.540360+00:00",
+  "tracks": {
+    "scifact": {
+      "baselines": [
+        {
+          "name": "calibrated",
+          "path": "runs/day12_scifact_500_e2e.jsonl",
+          "summary": {
+            "n": 500,
+            "stage2_call_rate": 0.49,
+            "routing_distribution": {
+              "accept_rate": 0.454,
+              "reject_rate": 0.056,
+              "uncertain_rate": 0.49
+            },
+            "routing_correctness": {
+              "ok_rate": 0.434,
+              "fp_accept_rate": 0.042,
+              "fn_reject_rate": 0.034,
+              "uncertain_rate": 0.49
+            },
+            "latency_total_ms": {
+              "mean": 1313.964663200015,
+              "p95": 3929.823263700836,
+              "p99": 5020.209275998767,
+              "max": 6046.40960100005,
+              "std": 1479.2650020260758
+            },
+            "latency_stage2_ms": {
+              "mean": 1313.901316398042,
+              "p95": 3929.765428100017,
+              "p99": 5020.102255879682,
+              "max": 6046.361776001504,
+              "std": 1479.2717607307654
+            },
+            "nli_label_dist": {
+              "CONTRADICTION": 0.27755102040816326,
+              "ENTAILMENT": 0.2693877551020408,
+              "NEUTRAL": 0.4530612244897959
+            }
+          }
+        },
+        {
+          "name": "always_stage2",
+          "path": "runs/day12_scifact_500_e2e_always.jsonl",
+          "summary": {
+            "n": 500,
+            "stage2_call_rate": 1.0,
+            "routing_distribution": {
+              "accept_rate": 0.454,
+              "reject_rate": 0.056,
+              "uncertain_rate": 0.49
+            },
+            "routing_correctness": {
+              "ok_rate": 0.434,
+              "fp_accept_rate": 0.042,
+              "fn_reject_rate": 0.034,
+              "uncertain_rate": 0.49
+            },
+            "latency_total_ms": {
+              "mean": 3610.7110136620504,
+              "p95": 6751.319299901295,
+              "p99": 9959.442354691128,
+              "max": 13999.53185099912,
+              "std": 1739.2438562653685
+            },
+            "latency_stage2_ms": {
+              "mean": 3610.63259160404,
+              "p95": 6751.249844901393,
+              "p99": 9959.363606930674,
+              "max": 13999.463382999238,
+              "std": 1739.214256505367
+            },
+            "nli_label_dist": {
+              "CONTRADICTION": 0.296,
+              "ENTAILMENT": 0.268,
+              "NEUTRAL": 0.436
+            }
+          }
+        },
+        {
+          "name": "random",
+          "path": "runs/day12_scifact_500_e2e_random.jsonl",
+          "summary": {
+            "n": 500,
+            "stage2_call_rate": 0.49,
+            "routing_distribution": {
+              "accept_rate": 0.448,
+              "reject_rate": 0.062,
+              "uncertain_rate": 0.49
+            },
+            "routing_correctness": {
+              "ok_rate": 0.386,
+              "fp_accept_rate": 0.074,
+              "fn_reject_rate": 0.05,
+              "uncertain_rate": 0.49
+            },
+            "latency_total_ms": {
+              "mean": 1239.5351572400032,
+              "p95": 3968.5604919508446,
+              "p99": 4684.288375313117,
+              "max": 5365.455156999815,
+              "std": 1428.3312177550379
+            },
+            "latency_stage2_ms": {
+              "mean": 1239.3972390260133,
+              "p95": 3968.4229717999156,
+              "p99": 4683.826490092433,
+              "max": 5365.382075000525,
+              "std": 1428.3214895378574
+            },
+            "nli_label_dist": {
+              "CONTRADICTION": 0.3020408163265306,
+              "ENTAILMENT": 0.2530612244897959,
+              "NEUTRAL": 0.4448979591836735
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,17 +1,8 @@
 tau: 0.609483051351548
 t_lower: 0.7792245061204353
 t_upper: 0.8008901176300922
-seed: 14
-n: 200
-gates:
-  max_fp_accept:
-  - 0.01
-  - 0.02
-  max_fn_reject:
-  - 0.01
-  - 0.02
-  max_uncertain:
-  - 0.3
-  - 0.5
-  - 0.7
-fallback: baseline
+lambda_fp: 10.0
+lambda_fn: 10.0
+lambda_unc: 1.0
+max_fp_accept_rate: 0.05
+max_fn_reject_rate: 0.05

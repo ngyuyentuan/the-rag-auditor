@@ -1,15 +1,16 @@
 # Stage1 Threshold Tuning (scifact)
 
-Generated: `2025-12-31T12:21:08.483014+00:00`
+Generated: `2026-01-06T14:08:02.635211+00:00`
 
 Config
 
 - in_path: `/mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet`
-- n: `200`
-- seed: `15`
+- n: `776`
+- seed: `14`
 - logit_col: `raw_max_top3`
 - y_col: `y`
-- tau: `0.609483051351548`
+- tau: `0.5618090452261306`
+- tau_source: `fit`
 
 Baseline thresholds
 
@@ -18,109 +19,71 @@ Baseline thresholds
 
 | metric | value |
 |---|---|
-| accept_rate | 0.4550 |
-| reject_rate | 0.0550 |
-| uncertain_rate | 0.4900 |
-| fp_accept_rate | 0.0350 |
-| fn_reject_rate | 0.0250 |
-| ok_rate | 0.9400 |
+| accept_rate | 0.8892 |
+| reject_rate | 0.0026 |
+| uncertain_rate | 0.1082 |
+| fp_accept_rate | 0.1366 |
+| fn_reject_rate | 0.0026 |
+| ok_rate | 0.8608 |
 
 Top 10 configs for budget <= 0.3
 
-| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate |
-|---|---|---|---|---|---|---|---|
-| 0.8082 | 0.8182 | 0.0100 | 0.7650 | 0.2250 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8384 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8586 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8788 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8990 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9192 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9394 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9596 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9798 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 1.0000 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
+- feasible_configs: `0`
+- baseline_candidate_feasible: `False`
+
+| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate | label | score |
+|---|---|---|---|---|---|---|---|---|---|
+| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 Recommended thresholds
 
-- t_lower: `0.8081632653061224`
-- t_upper: `0.8181632653061224`
-- fp_accept_rate: `0.0`
-- fn_reject_rate: `0.57`
-- ok_rate: `0.43000000000000005`
-- uncertain_rate: `0.225`
+- none (no configs met uncertain budget)
 
 Top 10 configs for budget <= 0.4
 
-| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate |
-|---|---|---|---|---|---|---|---|
-| 0.8082 | 0.8182 | 0.0100 | 0.7650 | 0.2250 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8384 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8586 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8788 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8990 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9192 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9394 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9596 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9798 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 1.0000 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
+- feasible_configs: `0`
+- baseline_candidate_feasible: `False`
+
+| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate | label | score |
+|---|---|---|---|---|---|---|---|---|---|
+| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 Recommended thresholds
 
-- t_lower: `0.8081632653061224`
-- t_upper: `0.8181632653061224`
-- fp_accept_rate: `0.0`
-- fn_reject_rate: `0.57`
-- ok_rate: `0.43000000000000005`
-- uncertain_rate: `0.225`
+- none (no configs met uncertain budget)
 
 Top 10 configs for budget <= 0.5
 
-| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate |
-|---|---|---|---|---|---|---|---|
-| 0.8082 | 0.8182 | 0.0100 | 0.7650 | 0.2250 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8384 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8586 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8788 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8990 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9192 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9394 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9596 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9798 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 1.0000 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
+- feasible_configs: `0`
+- baseline_candidate_feasible: `False`
+
+| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate | label | score |
+|---|---|---|---|---|---|---|---|---|---|
+| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 Recommended thresholds
 
-- t_lower: `0.8081632653061224`
-- t_upper: `0.8181632653061224`
-- fp_accept_rate: `0.0`
-- fn_reject_rate: `0.57`
-- ok_rate: `0.43000000000000005`
-- uncertain_rate: `0.225`
+- none (no configs met uncertain budget)
 
 Top 10 configs for budget <= 0.6
 
-| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate |
-|---|---|---|---|---|---|---|---|
-| 0.8082 | 0.8182 | 0.0100 | 0.7650 | 0.2250 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8384 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8586 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8788 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.8990 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9192 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9394 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9596 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 0.9798 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
-| 0.8082 | 1.0000 | 0.0000 | 0.7650 | 0.2350 | 0.0000 | 0.5700 | 0.4300 |
+- feasible_configs: `0`
+- baseline_candidate_feasible: `False`
+
+| t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate | label | score |
+|---|---|---|---|---|---|---|---|---|---|
+| n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 Recommended thresholds
 
-- t_lower: `0.8081632653061224`
-- t_upper: `0.8181632653061224`
-- fp_accept_rate: `0.0`
-- fn_reject_rate: `0.57`
-- ok_rate: `0.43000000000000005`
-- uncertain_rate: `0.225`
+- none (no configs met uncertain budget)
+
+YAML output
+
+- written_to_yaml: none (no feasible config for export budget)
+- out_yaml_preexisted: False
+- out_yaml_removed: False
 
 Interpretation
 
-Selection prioritizes minimizing fp_accept_rate, then fn_reject_rate, then ok_rate, then uncertain_rate. Lower uncertain budgets reduce deferrals but can increase fp or fn; higher budgets allow more deferrals and typically improve ok_rate. Use the budget that matches expected stage2 capacity.
+Selection uses constraints if provided, then objective. Pareto objective uses the frontier of lower (fp+fn) and lower uncertain, then picks the highest ok_rate. Lower uncertain budgets reduce deferrals but can increase fp or fn; higher budgets allow more deferrals and typically improve ok_rate. Use the budget that matches expected stage2 capacity.

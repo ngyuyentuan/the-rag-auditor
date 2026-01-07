@@ -79,3 +79,7 @@
 
 ## Freeze definition
 Do not change the parquet inputs, their sha256, or the threshold sources after this tag. Stage1 routing logic and tuned thresholds are locked for Stage2 work.
+
+## Decision memo linkage
+- [ ] Stage1 decision memo generated: reports/stage1_decision_memo.md
+- [ ] Product thresholds selected: scifact -> configs/thresholds_stage1_tuned_scifact.yaml; fever -> configs/thresholds_stage1_tuned_fever.yaml

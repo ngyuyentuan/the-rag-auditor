@@ -1,12 +1,12 @@
 # Stage1 Joint Tuning (fever)
 
-Generated: `2026-01-06T15:12:49.854978+00:00`
+Generated: `2026-01-08T08:35:45.215899+00:00`
 
 Config
 
 - in_path: `/mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/fever_stage1_dev_train.parquet`
 - n_raw: `5715`
-- n_used: `1000`
+- n_used: `5715`
 - seed: `14`
 - logit_col: `logit_platt`
 - y_col: `y`
@@ -21,38 +21,37 @@ Config
 
 Budget <= 0.3
 
-- feasible_configs: `2`
-- recommended: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918
-  coverage=0.7180 accuracy_on_decided=0.8774 ok_rate=0.9120 fp=0.0390 fn=0.0490 uncertain=0.2820
-- best_near_feasible: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918 fp=0.0390 fn=0.0490 uncertain=0.2820
+- feasible_configs: `0`
+- recommended: none (no feasible config)
+- best_near_feasible: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918 fp=0.0486 fn=0.0511 uncertain=0.2810
 
 Budget <= 0.4
 
-- feasible_configs: `556`
-- recommended: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918
-  coverage=0.7180 accuracy_on_decided=0.8774 ok_rate=0.9120 fp=0.0390 fn=0.0490 uncertain=0.2820
-- best_near_feasible: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918 fp=0.0390 fn=0.0490 uncertain=0.2820
+- feasible_configs: `212`
+- recommended: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755
+  coverage=0.6847 accuracy_on_decided=0.8640 ok_rate=0.9069 fp=0.0446 fn=0.0485 uncertain=0.3153
+- best_near_feasible: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755 fp=0.0446 fn=0.0485 uncertain=0.3153
 
 Budget <= 0.5
 
-- feasible_configs: `1348`
-- recommended: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918
-  coverage=0.7180 accuracy_on_decided=0.8774 ok_rate=0.9120 fp=0.0390 fn=0.0490 uncertain=0.2820
-- best_near_feasible: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918 fp=0.0390 fn=0.0490 uncertain=0.2820
+- feasible_configs: `1109`
+- recommended: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755
+  coverage=0.6847 accuracy_on_decided=0.8640 ok_rate=0.9069 fp=0.0446 fn=0.0485 uncertain=0.3153
+- best_near_feasible: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755 fp=0.0446 fn=0.0485 uncertain=0.3153
 
 Budget <= 0.6
 
-- feasible_configs: `1989`
-- recommended: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918
-  coverage=0.7180 accuracy_on_decided=0.8774 ok_rate=0.9120 fp=0.0390 fn=0.0490 uncertain=0.2820
-- best_near_feasible: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918 fp=0.0390 fn=0.0490 uncertain=0.2820
+- feasible_configs: `1858`
+- recommended: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755
+  coverage=0.6847 accuracy_on_decided=0.8640 ok_rate=0.9069 fp=0.0446 fn=0.0485 uncertain=0.3153
+- best_near_feasible: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755 fp=0.0446 fn=0.0485 uncertain=0.3153
 
 YAML output
 
-- written_to_yaml: tau=0.6271186440677967 t_lower=0.04040816326530612 t_upper=0.07061224489795918 export_budget=0.3
+- written_to_yaml: tau=1.1152542372881356 t_lower=0.14142857142857143 t_upper=0.19183673469387755 export_budget=0.4
 
 Repro command
 
 ```
-scripts/joint_tune_stage1_tau_thresholds.py --track fever --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/fever_stage1_dev_train.parquet --logit_col logit_platt --y_col y --n 1000 --budgets 0.30 0.40 0.50 0.60 --out_md reports/stage1_joint_tuning_fever.md --out_yaml configs/thresholds_stage1_joint_tuned_fever.yaml
+scripts/joint_tune_stage1_tau_thresholds.py --track fever --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/fever_stage1_dev_train.parquet --logit_col logit_platt --y_col y --budgets 0.30 0.40 0.50 0.60 --out_md reports/stage1_joint_tuning_fever.md --out_yaml configs/thresholds_stage1_joint_tuned_fever.yaml
 ```

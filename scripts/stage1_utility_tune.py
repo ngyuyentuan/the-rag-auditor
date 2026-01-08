@@ -5,12 +5,26 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
+from math import sqrt
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.utils.buffer import compute_cs_ret_from_logit, decide_route, routing_distribution
+
+
+def wilson_ci(x, n):
+    if n == 0:
+        return 0.0, 0.0
+    z = 1.96
+    phat = x / n
+    denom = 1 + z * z / n
+    centre = phat + z * z / (2 * n)
+    adj = z * sqrt((phat * (1 - phat) + z * z / (4 * n)) / n)
+    lower = (centre - adj) / denom
+    upper = (centre + adj) / denom
+    return max(0.0, lower), min(1.0, upper)
 
 
 def load_thresholds(path: Path, track: str) -> dict:
@@ -49,6 +63,8 @@ def compute_metrics(cs_ret, y, t_lower, t_upper):
     coverage = 1.0 - dist["UNCERTAIN"]
     decided = tp + tn + fp + fn
     accuracy_on_decided = (tp + tn) / decided if decided else 0.0
+    fp_decided_rate = fp / decided if decided else 0.0
+    fn_decided_rate = fn / decided if decided else 0.0
     return {
         "accept_rate": dist["ACCEPT"],
         "reject_rate": dist["REJECT"],
@@ -58,6 +74,12 @@ def compute_metrics(cs_ret, y, t_lower, t_upper):
         "ok_rate": ok_rate,
         "coverage": coverage,
         "accuracy_on_decided": accuracy_on_decided,
+        "n": n,
+        "fp_count": int(fp),
+        "fn_count": int(fn),
+        "decided": int(decided),
+        "fp_decided_rate": fp_decided_rate,
+        "fn_decided_rate": fn_decided_rate,
     }
 
 
@@ -65,15 +87,37 @@ def compute_utility(metrics, lambda_fp, lambda_fn, lambda_unc):
     return metrics["coverage"] - lambda_fp * metrics["fp_accept_rate"] - lambda_fn * metrics["fn_reject_rate"] - lambda_unc * metrics["uncertain_rate"]
 
 
-def select_best(candidates, max_fp, max_fn, lambda_fp, lambda_fn, lambda_unc):
-    feasible = [c for c in candidates if (max_fp is None or c["fp_accept_rate"] <= max_fp) and (max_fn is None or c["fn_reject_rate"] <= max_fn)]
-    target = feasible if feasible else candidates
+def select_best(candidates, max_fp, max_fn, lambda_fp, lambda_fn, lambda_unc, constraint_ci, min_coverage, max_fp_decided, max_fn_decided, scope, enforce_decided):
+    feasible = []
+    for c in candidates:
+        fp_upper = wilson_ci(c["fp_count"], c["n"])[1] if constraint_ci == "wilson" else c["fp_accept_rate"]
+        fn_upper = wilson_ci(c["fn_count"], c["n"])[1] if constraint_ci == "wilson" else c["fn_reject_rate"]
+        c["fp_upper95"] = fp_upper
+        c["fn_upper95"] = fn_upper
+        fp_dec_upper = wilson_ci(c["fp_decided_rate"] * max(c["decided"], 0), c["decided"])[1] if constraint_ci == "wilson" else c["fp_decided_rate"]
+        fn_dec_upper = wilson_ci(c["fn_decided_rate"] * max(c["decided"], 0), c["decided"])[1] if constraint_ci == "wilson" else c["fn_decided_rate"]
+        c["fp_decided_upper95"] = fp_dec_upper
+        c["fn_decided_upper95"] = fn_dec_upper
+        constraint_met = True
+        if min_coverage and c["coverage"] < min_coverage:
+            constraint_met = False
+        if max_fp is not None and fp_upper > max_fp:
+            constraint_met = False
+        if max_fn is not None and fn_upper > max_fn:
+            constraint_met = False
+        if enforce_decided or scope in ("decided", "both"):
+            if max_fp_decided is not None and fp_dec_upper > max_fp_decided:
+                constraint_met = False
+            if max_fn_decided is not None and fn_dec_upper > max_fn_decided:
+                constraint_met = False
+        c["constraint_met"] = constraint_met
+        if constraint_met:
+            feasible.append(c)
+    target = feasible if (feasible or constraint_ci == "wilson") else candidates
     for c in target:
         c["utility"] = compute_utility(c, lambda_fp, lambda_fn, lambda_unc)
-    ranked = sorted(
-        target,
-        key=lambda r: (-r["utility"], -(r["ok_rate"]), r["fp_accept_rate"] + r["fn_reject_rate"], r["uncertain_rate"]),
-    )
+        c["risk"] = c["fp_accept_rate"] + c["fn_reject_rate"]
+    ranked = sorted(target, key=lambda r: (-r["utility"], r["risk"], -r["coverage"], r["uncertain_rate"])) if target else []
     pick = ranked[0] if ranked else None
     return pick, feasible
 
@@ -103,15 +147,20 @@ def main():
     ap.add_argument("--y_col", default="y")
     ap.add_argument("--seed", type=int, default=14)
     ap.add_argument("--n", type=int)
-    ap.add_argument("--tau_source", choices=["config", "manual", "grid"], default="config")
+    ap.add_argument("--tau_source", choices=["config", "fit_grid", "joint_grid", "manual"], default="config")
     ap.add_argument("--tau", type=float)
     ap.add_argument("--tau_grid_min", type=float, default=0.2)
     ap.add_argument("--tau_grid_max", type=float, default=2.0)
     ap.add_argument("--tau_grid_steps", type=int, default=50)
-    ap.add_argument("--grid_lower_steps", type=int, default=50)
-    ap.add_argument("--grid_upper_steps", type=int, default=50)
+    ap.add_argument("--threshold_steps", type=int, default=60)
     ap.add_argument("--max_fp_accept_rate", type=float, default=0.05)
     ap.add_argument("--max_fn_reject_rate", type=float, default=0.05)
+    ap.add_argument("--constraint_ci", choices=["none", "wilson"], default="none")
+    ap.add_argument("--min_coverage", type=float, default=0.0)
+    ap.add_argument("--constraint_scope", choices=["total", "decided", "both"], default="both")
+    ap.add_argument("--max_fp_decided_upper95", type=float, default=0.10)
+    ap.add_argument("--max_fn_decided_upper95", type=float, default=0.10)
+    ap.add_argument("--enforce_decided_ci", action="store_true")
     ap.add_argument("--lambda_fp", type=float, default=10.0)
     ap.add_argument("--lambda_fn", type=float, default=10.0)
     ap.add_argument("--lambda_unc", type=float, default=1.0)
@@ -147,18 +196,36 @@ def main():
     y_vals = df[args.y_col].astype(int).tolist()
     logits = df[args.logit_col].astype(float).tolist()
 
+    def fit_tau_grid():
+        y_arr = np.asarray(y_vals, dtype=float)
+        taus = np.linspace(args.tau_grid_min, args.tau_grid_max, args.tau_grid_steps)
+        best_tau = None
+        best_nll = None
+        eps = 1e-12
+        for tau in taus:
+            probs = np.asarray([compute_cs_ret_from_logit(v, tau) for v in logits], dtype=float)
+            probs = np.clip(probs, eps, 1.0 - eps)
+            nll = -np.mean(y_arr * np.log(probs) + (1.0 - y_arr) * np.log(1.0 - probs))
+            if best_nll is None or nll < best_nll:
+                best_nll = nll
+                best_tau = float(tau)
+        return best_tau
+
     tau_list = []
     if args.tau_source == "manual":
         if args.tau is None:
             raise ValueError("tau_source=manual requires --tau")
         tau_list = [float(args.tau)]
-    elif args.tau_source == "grid":
+    elif args.tau_source == "fit_grid":
+        tau_list = [fit_tau_grid()]
+    elif args.tau_source == "joint_grid":
         tau_list = [float(t) for t in np.linspace(args.tau_grid_min, args.tau_grid_max, args.tau_grid_steps)]
     else:
         tau_list = [float(base["tau"])]
 
-    grid_lower = np.linspace(0.0, 0.99, args.grid_lower_steps)
-    grid_upper = np.linspace(0.01, 1.0, args.grid_upper_steps)
+    step = args.threshold_steps
+    grid_lower = np.linspace(0.0, 0.99, step)
+    grid_upper = np.linspace(0.01, 1.0, step)
 
     baseline_metrics = compute_metrics(
         [compute_cs_ret_from_logit(x, float(base["tau"])) for x in logits],
@@ -168,7 +235,21 @@ def main():
     )
 
     candidates = []
-    for tau in tau_list:
+    if args.tau_source == "joint_grid":
+        for tau in tau_list:
+            cs_ret = [compute_cs_ret_from_logit(x, tau) for x in logits]
+            for t_lower in grid_lower:
+                for t_upper in grid_upper:
+                    if t_lower >= t_upper:
+                        continue
+                    m = compute_metrics(cs_ret, y_vals, float(t_lower), float(t_upper))
+                    cand = dict(m)
+                    cand["tau"] = float(tau)
+                    cand["t_lower"] = float(t_lower)
+                    cand["t_upper"] = float(t_upper)
+                    candidates.append(cand)
+    else:
+        tau = tau_list[0]
         cs_ret = [compute_cs_ret_from_logit(x, tau) for x in logits]
         for t_lower in grid_lower:
             for t_upper in grid_upper:
@@ -194,6 +275,12 @@ def main():
         args.lambda_fp,
         args.lambda_fn,
         args.lambda_unc,
+        args.constraint_ci,
+        args.min_coverage,
+        args.max_fp_decided_upper95,
+        args.max_fn_decided_upper95,
+        args.constraint_scope,
+        args.enforce_decided_ci,
     )
 
     for c in candidates:
@@ -222,9 +309,15 @@ def main():
     lines.append(f"- tau_grid_steps: `{args.tau_grid_steps}`")
     lines.append(f"- max_fp_accept_rate: `{args.max_fp_accept_rate}`")
     lines.append(f"- max_fn_reject_rate: `{args.max_fn_reject_rate}`")
+    lines.append(f"- max_fp_decided_upper95: `{args.max_fp_decided_upper95}`")
+    lines.append(f"- max_fn_decided_upper95: `{args.max_fn_decided_upper95}`")
     lines.append(f"- lambda_fp: `{args.lambda_fp}`")
     lines.append(f"- lambda_fn: `{args.lambda_fn}`")
     lines.append(f"- lambda_unc: `{args.lambda_unc}`")
+    lines.append(f"- constraint_ci: `{args.constraint_ci}`")
+    lines.append(f"- min_coverage: `{args.min_coverage}`")
+    lines.append(f"- constraint_scope: `{args.constraint_scope}`")
+    lines.append(f"- enforce_decided_ci: `{args.enforce_decided_ci}`")
     lines.append("")
     lines.append("Baseline thresholds")
     lines.append("")
@@ -241,11 +334,11 @@ def main():
     lines.append("")
     lines.append("Top configs by utility")
     lines.append("")
-    lines.append("| tau | t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | ok_rate | coverage | accuracy_on_decided | utility | label |")
-    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("| tau | t_lower | t_upper | accept_rate | reject_rate | uncertain_rate | fp_accept_rate | fn_reject_rate | fp_decided | fn_decided | ok_rate | coverage | accuracy_on_decided | utility | label |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in ranked:
         lines.append(
-            "| {tau:.4f} | {t_lower:.4f} | {t_upper:.4f} | {accept_rate:.4f} | {reject_rate:.4f} | {uncertain_rate:.4f} | {fp_accept_rate:.4f} | {fn_reject_rate:.4f} | {ok_rate:.4f} | {coverage:.4f} | {accuracy_on_decided:.4f} | {utility:.4f} | {label} |".format(
+            "| {tau:.4f} | {t_lower:.4f} | {t_upper:.4f} | {accept_rate:.4f} | {reject_rate:.4f} | {uncertain_rate:.4f} | {fp_accept_rate:.4f} | {fn_reject_rate:.4f} | {fp_decided_rate:.4f} | {fn_decided_rate:.4f} | {ok_rate:.4f} | {coverage:.4f} | {accuracy_on_decided:.4f} | {utility:.4f} | {label} |".format(
                 tau=r["tau"],
                 t_lower=r["t_lower"],
                 t_upper=r["t_upper"],
@@ -254,6 +347,8 @@ def main():
                 uncertain_rate=r["uncertain_rate"],
                 fp_accept_rate=r["fp_accept_rate"],
                 fn_reject_rate=r["fn_reject_rate"],
+                fp_decided_rate=r["fp_decided_rate"],
+                fn_decided_rate=r["fn_decided_rate"],
                 ok_rate=r["ok_rate"],
                 coverage=r["coverage"],
                 accuracy_on_decided=r["accuracy_on_decided"],
@@ -285,12 +380,19 @@ def main():
     if pick is None:
         lines.append("- selected: none")
     else:
-        feasible_flag = (args.max_fp_accept_rate is None or pick["fp_accept_rate"] <= args.max_fp_accept_rate) and (args.max_fn_reject_rate is None or pick["fn_reject_rate"] <= args.max_fn_reject_rate)
         lines.append(f"- tau: `{pick['tau']}`")
         lines.append(f"- t_lower: `{pick['t_lower']}`")
         lines.append(f"- t_upper: `{pick['t_upper']}`")
         lines.append(f"- utility: `{pick['utility']}`")
-        lines.append(f"- feasible: `{feasible_flag}`")
+        lines.append(f"- fp_accept_rate: `{pick['fp_accept_rate']}`")
+        lines.append(f"- fn_reject_rate: `{pick['fn_reject_rate']}`")
+        lines.append(f"- fp_decided_rate: `{pick['fp_decided_rate']}`")
+        lines.append(f"- fn_decided_rate: `{pick['fn_decided_rate']}`")
+        lines.append(f"- fp_upper95: `{pick['fp_upper95']}`")
+        lines.append(f"- fn_upper95: `{pick['fn_upper95']}`")
+        lines.append(f"- fp_decided_upper95: `{pick['fp_decided_upper95']}`")
+        lines.append(f"- fn_decided_upper95: `{pick['fn_decided_upper95']}`")
+        lines.append(f"- constraint_met: `{pick['constraint_met']}`")
         lines.append("")
     lines.append("Repro command")
     lines.append("")
@@ -311,6 +413,12 @@ def main():
             "lambda_unc": float(args.lambda_unc),
             "max_fp_accept_rate": float(args.max_fp_accept_rate),
             "max_fn_reject_rate": float(args.max_fn_reject_rate),
+            "max_fp_decided_upper95": float(args.max_fp_decided_upper95),
+            "max_fn_decided_upper95": float(args.max_fn_decided_upper95),
+            "min_coverage": float(args.min_coverage),
+            "constraint_scope": args.constraint_scope,
+            "enforce_decided_ci": bool(args.enforce_decided_ci),
+            "tau_source": args.tau_source,
         }
         out_yaml.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 

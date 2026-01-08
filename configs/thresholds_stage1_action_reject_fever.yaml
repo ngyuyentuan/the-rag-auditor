@@ -1,0 +1,10 @@
+tau: 0.9957177012600404
+t_lower: 0.22224489795918367
+t_upper: 0.23224489795918368
+min_coverage: 0.3
+min_accept_count: 50
+min_reject_count: 20
+max_fp_given_accept_upper95: 0.1
+max_fn_given_reject_upper95: 0.15
+tau_source: config
+certify: reject_only

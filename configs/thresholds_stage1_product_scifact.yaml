@@ -1,8 +1,14 @@
-tau: 0.609483051351548
-t_lower: 0.7792245061204353
-t_upper: 0.8008901176300922
+tau: 0.7468354430379747
+t_lower: 0.0
+t_upper: 0.7618987341772152
 lambda_fp: 10.0
 lambda_fn: 10.0
 lambda_unc: 1.0
 max_fp_accept_rate: 0.05
 max_fn_reject_rate: 0.05
+max_fp_decided_upper95: 0.1
+max_fn_decided_upper95: 0.1
+min_coverage: 0.0
+constraint_scope: both
+enforce_decided_ci: false
+tau_source: joint_grid

@@ -1,6 +1,6 @@
 # Stage1 Joint Tuning (scifact)
 
-Generated: `2026-01-06T15:07:08.248304+00:00`
+Generated: `2026-01-08T08:35:43.864496+00:00`
 
 Config
 
@@ -51,5 +51,5 @@ YAML output
 Repro command
 
 ```
-scripts/joint_tune_stage1_tau_thresholds.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --n 1000 --budgets 0.30 0.40 0.50 0.60 --out_md reports/stage1_joint_tuning_scifact.md --out_yaml configs/thresholds_stage1_joint_tuned_scifact.yaml
+scripts/joint_tune_stage1_tau_thresholds.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --budgets 0.30 0.40 0.50 0.60 --out_md reports/stage1_joint_tuning_scifact.md --out_yaml configs/thresholds_stage1_joint_tuned_scifact.yaml
 ```

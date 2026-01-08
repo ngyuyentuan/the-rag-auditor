@@ -1,13 +1,17 @@
 # Stage1 Product Eval V2 (scifact)
 
 - in_path: `/mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet`
-- n: 200
+- runs_jsonl: `None`
+- n: 776
 - seed: 14
 - logit_col: `raw_max_top3`
 - y_col: `y`
 - claim_col: `None`
 - passage_col: `None`
-- cheap_checks: `off`
+- cheap_checks_requested: `off`
+- cheap_checks_effective: `off`
+- overlap_min: `0.2`
+
 
 ## baseline (checks off)
 
@@ -17,13 +21,13 @@
 
 | metric | value | 95% CI |
 |---|---:|---:|
-| uncertain_rate | 0.4750 | [0.4150, 0.5500] |
-| fp_accept_rate | 0.0300 | [0.0100, 0.0550] |
-| fn_reject_rate | 0.0250 | [0.0050, 0.0500] |
-| risk | 0.0550 | [0.0274, 0.0850] |
-| ok_rate | 0.9450 | [0.9150, 0.9726] |
-| coverage | 0.5250 | [0.4500, 0.5850] |
-| accuracy_on_decided | 0.8952 | [0.8380, 0.9461] |
+| uncertain_rate | 0.4845 | [0.4485, 0.5206] |
+| fp_accept_rate | 0.0425 | [0.0284, 0.0567] |
+| fn_reject_rate | 0.0322 | [0.0206, 0.0451] |
+| risk | 0.0747 | [0.0567, 0.0928] |
+| ok_rate | 0.9253 | [0.9072, 0.9433] |
+| coverage | 0.5155 | [0.4794, 0.5515] |
+| accuracy_on_decided | 0.8550 | [0.8210, 0.8900] |
 
 ## joint_tuned (checks off)
 
@@ -33,29 +37,29 @@
 
 | metric | value | 95% CI |
 |---|---:|---:|
-| uncertain_rate | 0.5450 | [0.4800, 0.6126] |
-| fp_accept_rate | 0.0250 | [0.0100, 0.0500] |
-| fn_reject_rate | 0.0050 | [0.0000, 0.0150] |
-| risk | 0.0300 | [0.0100, 0.0550] |
-| ok_rate | 0.9700 | [0.9450, 0.9900] |
-| coverage | 0.4550 | [0.3874, 0.5200] |
-| accuracy_on_decided | 0.9341 | [0.8771, 0.9783] |
+| uncertain_rate | 0.5464 | [0.5103, 0.5812] |
+| fp_accept_rate | 0.0374 | [0.0245, 0.0515] |
+| fn_reject_rate | 0.0103 | [0.0039, 0.0180] |
+| risk | 0.0477 | [0.0322, 0.0631] |
+| ok_rate | 0.9523 | [0.9369, 0.9678] |
+| coverage | 0.4536 | [0.4188, 0.4897] |
+| accuracy_on_decided | 0.8949 | [0.8613, 0.9272] |
 
 ## product_tuned (checks off)
 
-- tau: `0.609483051351548`
-- t_lower: `0.7792245061204353`
-- t_upper: `0.8008901176300922`
+- tau: `0.7468354430379747`
+- t_lower: `0.0`
+- t_upper: `0.7618987341772152`
 
 | metric | value | 95% CI |
 |---|---:|---:|
-| uncertain_rate | 0.4750 | [0.3974, 0.5400] |
-| fp_accept_rate | 0.0300 | [0.0100, 0.0550] |
-| fn_reject_rate | 0.0250 | [0.0050, 0.0500] |
-| risk | 0.0550 | [0.0250, 0.0850] |
-| ok_rate | 0.9450 | [0.9150, 0.9750] |
-| coverage | 0.5250 | [0.4600, 0.6026] |
-| accuracy_on_decided | 0.8952 | [0.8436, 0.9495] |
+| uncertain_rate | 0.7126 | [0.6817, 0.7448] |
+| fp_accept_rate | 0.0168 | [0.0090, 0.0258] |
+| fn_reject_rate | 0.0000 | [0.0000, 0.0000] |
+| risk | 0.0168 | [0.0090, 0.0258] |
+| ok_rate | 0.9832 | [0.9742, 0.9910] |
+| coverage | 0.2874 | [0.2552, 0.3183] |
+| accuracy_on_decided | 0.9417 | [0.9095, 0.9696] |
 
 Interpretation
 
@@ -64,5 +68,5 @@ ok_rate treats UNCERTAIN as safe deferral, so it can look high when many cases a
 Repro command
 
 ```
-scripts/eval_stage1_product_v2.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --baseline_yaml configs/thresholds.yaml --joint_yaml configs/thresholds_stage1_joint_tuned_scifact.yaml --product_yaml configs/thresholds_stage1_product_scifact.yaml --n 200 --bootstrap 500 --cheap_checks off --out_md reports/stage1_product_eval_v2_scifact.md
+scripts/eval_stage1_product_v2.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --n 1000 --out_md reports/stage1_product_eval_v2_scifact.md
 ```

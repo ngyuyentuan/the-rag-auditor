@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -102,7 +103,21 @@ def pick_column(df, candidates):
     return None
 
 
-def eval_config(df, logit_col, y_col, tau, t_lower, t_upper, cheap_checks, claim_col, passage_col, score_cols):
+def load_jsonl(path: Path):
+    rows = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except Exception:
+                continue
+    return rows
+
+
+def eval_config(df, logit_col, y_col, tau, t_lower, t_upper, cheap_checks, claim_col, passage_col, score_cols, overlap_min):
     logits = df[logit_col].astype(float).tolist()
     y_vals = df[y_col].astype(int).tolist()
     cs_ret = [compute_cs_ret_from_logit(x, tau) for x in logits]
@@ -124,7 +139,7 @@ def eval_config(df, logit_col, y_col, tau, t_lower, t_upper, cheap_checks, claim
         claim = claims[idx]
         passage = passages[idx]
         score_list = scores[idx] if scores is not None else None
-        new_d, _ = apply_cheap_checks(d, claim, passage, score_list)
+        new_d, _ = apply_cheap_checks(d, claim, passage, score_list, overlap_min=overlap_min)
         adjusted.append(new_d)
     return adjusted, compute_metrics(adjusted, y_vals)
 
@@ -141,43 +156,103 @@ def main():
     ap.add_argument("--seed", type=int, default=14)
     ap.add_argument("--n", type=int)
     ap.add_argument("--bootstrap", type=int, default=2000)
-    ap.add_argument("--cheap_checks", choices=["off", "on", "both"], default="off")
+    ap.add_argument("--cheap_checks", choices=["off", "on", "auto", "both"], default="off")
+    ap.add_argument("--overlap_min", type=float, default=0.2)
+    ap.add_argument("--runs_jsonl")
     ap.add_argument("--claim_col")
     ap.add_argument("--passage_col")
     ap.add_argument("--score_cols", nargs="+")
     ap.add_argument("--out_md", default=None)
     args = ap.parse_args()
 
-    in_path = Path(args.in_path)
-    if not in_path.exists():
-        raise FileNotFoundError(str(in_path))
-
-    df = pd.read_parquet(in_path)
-    if args.logit_col not in df.columns:
-        raise ValueError(f"missing logit_col {args.logit_col}")
-    if args.y_col not in df.columns:
-        raise ValueError(f"missing y_col {args.y_col}")
-
-    y = pd.to_numeric(df[args.y_col], errors="coerce")
-    logits = pd.to_numeric(df[args.logit_col], errors="coerce")
-    mask = y.isin([0, 1]) & logits.notna()
-    df = df.loc[mask].copy()
-    df[args.y_col] = y[mask].astype(int)
-    df[args.logit_col] = logits[mask].astype(float)
-
-    if args.n is not None:
-        df = df.sample(n=min(args.n, len(df)), random_state=args.seed)
-
     claim_col = args.claim_col
     passage_col = args.passage_col
-    if claim_col is None:
-        claim_col = pick_column(df, ["claim", "query", "question", "hypothesis", "sentence"])
-    if passage_col is None:
-        passage_col = pick_column(df, ["passage", "evidence", "context", "top_passage", "text"])
-    if claim_col is not None and claim_col not in df.columns:
-        claim_col = None
-    if passage_col is not None and passage_col not in df.columns:
-        passage_col = None
+    json_claim_field = None
+    json_passage_field = None
+    json_df = None
+
+    if args.runs_jsonl:
+        runs_path = Path(args.runs_jsonl)
+        if not runs_path.exists():
+            raise FileNotFoundError(str(runs_path))
+        rows = load_jsonl(runs_path)
+        records = []
+        for r in rows:
+            gt = r.get("ground_truth") or {}
+            meta = r.get("metadata") or {}
+            stage1 = r.get("stage1") or {}
+            if "y" in gt:
+                yv = gt.get("y")
+            elif "label" in gt:
+                yv = gt.get("label")
+            else:
+                continue
+            logit = stage1.get("logit") if isinstance(stage1, dict) else None
+            if logit is None and "logit" in r:
+                logit = r.get("logit")
+            record = {"y": yv, "logit": logit}
+            for k, v in meta.items():
+                record[f"meta.{k}"] = v
+            if "claim" in meta:
+                record["claim"] = meta.get("claim")
+            if "question" in meta:
+                record["question"] = meta.get("question")
+            ev = r.get("evidence") or r.get("retrieved") or {}
+            if isinstance(ev, dict):
+                if "text" in ev:
+                    record["text"] = ev["text"]
+                if "passage" in ev:
+                    record["passage"] = ev["passage"]
+            records.append(record)
+        if not records:
+            raise ValueError("no usable rows in runs_jsonl")
+        json_df = pd.DataFrame(records)
+        df = json_df
+        df["y"] = pd.to_numeric(df["y"], errors="coerce")
+        mask = df["y"].isin([0, 1]) & pd.to_numeric(df["logit"], errors="coerce").notna()
+        df = df.loc[mask].copy()
+        df["y"] = df["y"].astype(int)
+        df["logit"] = pd.to_numeric(df["logit"], errors="coerce").astype(float)
+        df.rename(columns={"logit": args.logit_col}, inplace=True)
+        if args.n is not None:
+            df = df.sample(n=min(args.n, len(df)), random_state=args.seed)
+        if claim_col is None:
+            for cand in ["claim", "query", "question", "hypothesis", "text", "meta.claim"]:
+                if cand in df.columns:
+                    claim_col = cand
+                    json_claim_field = cand
+                    break
+        if passage_col is None:
+            for cand in ["passage", "context", "evidence", "doc_text", "retrieved_text", "top_passage", "top1_text", "text"]:
+                if cand in df.columns:
+                    passage_col = cand
+                    json_passage_field = cand
+                    break
+    else:
+        in_path = Path(args.in_path)
+        if not in_path.exists():
+            raise FileNotFoundError(str(in_path))
+        df = pd.read_parquet(in_path)
+        if args.logit_col not in df.columns:
+            raise ValueError(f"missing logit_col {args.logit_col}")
+        if args.y_col not in df.columns:
+            raise ValueError(f"missing y_col {args.y_col}")
+        y = pd.to_numeric(df[args.y_col], errors="coerce")
+        logits = pd.to_numeric(df[args.logit_col], errors="coerce")
+        mask = y.isin([0, 1]) & logits.notna()
+        df = df.loc[mask].copy()
+        df[args.y_col] = y[mask].astype(int)
+        df[args.logit_col] = logits[mask].astype(float)
+        if args.n is not None:
+            df = df.sample(n=min(args.n, len(df)), random_state=args.seed)
+        if claim_col is None:
+            claim_col = pick_column(df, ["claim", "query", "question", "hypothesis", "text"])
+        if passage_col is None:
+            passage_col = pick_column(df, ["passage", "context", "evidence", "doc_text", "retrieved_text", "top_passage", "top1_text"])
+        if claim_col is not None and claim_col not in df.columns:
+            claim_col = None
+        if passage_col is not None and passage_col not in df.columns:
+            passage_col = None
 
     baseline = load_thresholds(Path(args.baseline_yaml), args.track)
     joint_path = Path(args.joint_yaml) if args.joint_yaml else Path(f"configs/thresholds_stage1_joint_tuned_{args.track}.yaml")
@@ -194,11 +269,14 @@ def main():
     rng = np.random.default_rng(args.seed)
     results = []
     for name, cfg in configs:
-        for mode in ("off", "on"):
-            if args.cheap_checks == "off" and mode == "on":
-                continue
-            if args.cheap_checks == "on" and mode == "off":
-                continue
+        modes = ("off", "on")
+        if args.cheap_checks == "off":
+            modes = ("off",)
+        if args.cheap_checks == "on":
+            modes = ("on",)
+        if args.cheap_checks == "auto" and (claim_col is None or passage_col is None):
+            modes = ("off",)
+        for mode in modes:
             decisions, metrics = eval_config(
                 df,
                 args.logit_col,
@@ -210,6 +288,7 @@ def main():
                 claim_col,
                 passage_col,
                 args.score_cols,
+                args.overlap_min,
             )
             ci = bootstrap_ci(decisions, df[args.y_col].tolist(), rng, args.bootstrap)
             results.append((name, mode, cfg, metrics, ci))
@@ -219,14 +298,24 @@ def main():
     lines = []
     lines.append(f"# Stage1 Product Eval V2 ({args.track})")
     lines.append("")
-    lines.append(f"- in_path: `{in_path}`")
+    lines.append(f"- in_path: `{args.in_path}`")
+    lines.append(f"- runs_jsonl: `{args.runs_jsonl}`")
     lines.append(f"- n: {len(df)}")
     lines.append(f"- seed: {args.seed}")
     lines.append(f"- logit_col: `{args.logit_col}`")
     lines.append(f"- y_col: `{args.y_col}`")
     lines.append(f"- claim_col: `{claim_col}`")
     lines.append(f"- passage_col: `{passage_col}`")
-    lines.append(f"- cheap_checks: `{args.cheap_checks}`")
+    lines.append(f"- cheap_checks_requested: `{args.cheap_checks}`")
+    if args.cheap_checks == "auto" and (claim_col is None or passage_col is None):
+        lines.append("- cheap_checks_effective: off (no text columns found)")
+    else:
+        lines.append(f"- cheap_checks_effective: `{ 'on' if args.cheap_checks in ('on','auto','both') and claim_col and passage_col else 'off' }`")
+    lines.append(f"- overlap_min: `{args.overlap_min}`")
+    if args.runs_jsonl:
+        lines.append(f"- json_claim_field: `{json_claim_field}`")
+        lines.append(f"- json_passage_field: `{json_passage_field}`")
+    lines.append("")
     lines.append("")
     for name, mode, cfg, metrics, ci in results:
         lines.append(f"## {name} (checks {mode})")

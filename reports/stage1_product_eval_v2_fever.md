@@ -8,8 +8,8 @@
 - y_col: `y`
 - claim_col: `None`
 - passage_col: `None`
-- cheap_checks_requested: `off`
-- cheap_checks_effective: `off`
+- cheap_checks_requested: `auto`
+- cheap_checks_effective: off (no text columns found)
 - overlap_min: `0.2`
 
 
@@ -47,19 +47,19 @@
 
 ## product_tuned (checks off)
 
-- tau: `0.9974683544303797`
-- t_lower: `0.11278481012658227`
-- t_upper: `0.24810126582278483`
+- tau: `0.6271186440677967`
+- t_lower: `0.0335593220338983`
+- t_upper: `0.12745762711864406`
 
 | metric | value | 95% CI |
 |---|---:|---:|
-| uncertain_rate | 0.4180 | [0.3870, 0.4480] |
+| uncertain_rate | 0.4800 | [0.4490, 0.5100] |
 | fp_accept_rate | 0.0000 | [0.0000, 0.0000] |
-| fn_reject_rate | 0.0420 | [0.0310, 0.0550] |
-| risk | 0.0420 | [0.0310, 0.0550] |
-| ok_rate | 0.9580 | [0.9450, 0.9690] |
-| coverage | 0.5820 | [0.5520, 0.6130] |
-| accuracy_on_decided | 0.9278 | [0.9059, 0.9469] |
+| fn_reject_rate | 0.0360 | [0.0250, 0.0480] |
+| risk | 0.0360 | [0.0250, 0.0480] |
+| ok_rate | 0.9640 | [0.9520, 0.9750] |
+| coverage | 0.5200 | [0.4900, 0.5510] |
+| accuracy_on_decided | 0.9308 | [0.9084, 0.9513] |
 
 Interpretation
 
@@ -68,5 +68,5 @@ ok_rate treats UNCERTAIN as safe deferral, so it can look high when many cases a
 Repro command
 
 ```
-scripts/eval_stage1_product_v2.py --track fever --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/fever_stage1_dev_train.parquet --logit_col logit_platt --y_col y --n 1000 --out_md reports/stage1_product_eval_v2_fever.md
+scripts/eval_stage1_product_v2.py --track fever --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/fever_stage1_dev_train.parquet --logit_col logit_platt --y_col y --baseline_yaml configs/thresholds.yaml --joint_yaml configs/thresholds_stage1_joint_tuned_fever.yaml --product_yaml configs/thresholds_stage1_product_fever.yaml --n 1000 --bootstrap 2000 --cheap_checks auto --out_md reports/stage1_product_eval_v2_fever.md
 ```

@@ -8,8 +8,8 @@
 - y_col: `y`
 - claim_col: `None`
 - passage_col: `None`
-- cheap_checks_requested: `off`
-- cheap_checks_effective: `off`
+- cheap_checks_requested: `auto`
+- cheap_checks_effective: off (no text columns found)
 - overlap_min: `0.2`
 
 
@@ -47,19 +47,19 @@
 
 ## product_tuned (checks off)
 
-- tau: `0.7468354430379747`
+- tau: `1.145762711864407`
 - t_lower: `0.0`
-- t_upper: `0.7618987341772152`
+- t_upper: `0.6811864406779661`
 
 | metric | value | 95% CI |
 |---|---:|---:|
-| uncertain_rate | 0.7126 | [0.6817, 0.7448] |
-| fp_accept_rate | 0.0168 | [0.0090, 0.0258] |
+| uncertain_rate | 0.7255 | [0.6946, 0.7578] |
+| fp_accept_rate | 0.0142 | [0.0064, 0.0232] |
 | fn_reject_rate | 0.0000 | [0.0000, 0.0000] |
-| risk | 0.0168 | [0.0090, 0.0258] |
-| ok_rate | 0.9832 | [0.9742, 0.9910] |
-| coverage | 0.2874 | [0.2552, 0.3183] |
-| accuracy_on_decided | 0.9417 | [0.9095, 0.9696] |
+| risk | 0.0142 | [0.0064, 0.0232] |
+| ok_rate | 0.9858 | [0.9768, 0.9936] |
+| coverage | 0.2745 | [0.2422, 0.3054] |
+| accuracy_on_decided | 0.9484 | [0.9174, 0.9760] |
 
 Interpretation
 
@@ -68,5 +68,5 @@ ok_rate treats UNCERTAIN as safe deferral, so it can look high when many cases a
 Repro command
 
 ```
-scripts/eval_stage1_product_v2.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --n 1000 --out_md reports/stage1_product_eval_v2_scifact.md
+scripts/eval_stage1_product_v2.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --baseline_yaml configs/thresholds.yaml --joint_yaml configs/thresholds_stage1_joint_tuned_scifact.yaml --product_yaml configs/thresholds_stage1_product_scifact.yaml --n 1000 --bootstrap 2000 --cheap_checks auto --out_md reports/stage1_product_eval_v2_scifact.md
 ```

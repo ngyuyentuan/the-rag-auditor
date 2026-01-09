@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -166,6 +167,9 @@ def main():
     ap.add_argument("--lambda_unc", type=float, default=1.0)
     ap.add_argument("--out_md", default=None)
     ap.add_argument("--out_yaml", default=None)
+    ap.add_argument("--progress", dest="progress", action="store_true")
+    ap.add_argument("--no_progress", dest="progress", action="store_false")
+    ap.set_defaults(progress=None)
     args = ap.parse_args()
 
     in_path = Path(args.in_path)
@@ -235,32 +239,66 @@ def main():
     )
 
     candidates = []
+    valid_pairs = [
+        (i, j)
+        for i in range(len(grid_lower))
+        for j in range(len(grid_upper))
+        if grid_lower[i] < grid_upper[j]
+    ]
+    total_iters = (len(tau_list) if args.tau_source == "joint_grid" else 1) * len(valid_pairs)
+    progress_enabled = args.progress if args.progress is not None else sys.stderr.isatty()
+    try:
+        from tqdm import tqdm as _tqdm
+    except Exception:
+        _tqdm = None
+    progress_step = max(1, total_iters // 100) if total_iters else 1
+    progress_count = 0
+    start_time = time.time()
+    pbar = _tqdm(total=total_iters, desc="grid", file=sys.stderr, disable=not progress_enabled) if _tqdm else None
+
     if args.tau_source == "joint_grid":
         for tau in tau_list:
             cs_ret = [compute_cs_ret_from_logit(x, tau) for x in logits]
-            for t_lower in grid_lower:
-                for t_upper in grid_upper:
-                    if t_lower >= t_upper:
-                        continue
-                    m = compute_metrics(cs_ret, y_vals, float(t_lower), float(t_upper))
-                    cand = dict(m)
-                    cand["tau"] = float(tau)
-                    cand["t_lower"] = float(t_lower)
-                    cand["t_upper"] = float(t_upper)
-                    candidates.append(cand)
-    else:
-        tau = tau_list[0]
-        cs_ret = [compute_cs_ret_from_logit(x, tau) for x in logits]
-        for t_lower in grid_lower:
-            for t_upper in grid_upper:
-                if t_lower >= t_upper:
-                    continue
+            for i, j in valid_pairs:
+                t_lower = grid_lower[i]
+                t_upper = grid_upper[j]
                 m = compute_metrics(cs_ret, y_vals, float(t_lower), float(t_upper))
                 cand = dict(m)
                 cand["tau"] = float(tau)
                 cand["t_lower"] = float(t_lower)
                 cand["t_upper"] = float(t_upper)
                 candidates.append(cand)
+                progress_count += 1
+                if pbar:
+                    pbar.update(1)
+                elif progress_enabled and (progress_count % progress_step == 0 or progress_count == total_iters):
+                    pct = (progress_count / total_iters) * 100 if total_iters else 100.0
+                    elapsed = time.time() - start_time
+                    print(f"progress {progress_count}/{total_iters} ({pct:.1f}%) elapsed {elapsed:.1f}s", file=sys.stderr)
+    else:
+        tau = tau_list[0]
+        cs_ret = [compute_cs_ret_from_logit(x, tau) for x in logits]
+        for i, j in valid_pairs:
+            t_lower = grid_lower[i]
+            t_upper = grid_upper[j]
+            m = compute_metrics(cs_ret, y_vals, float(t_lower), float(t_upper))
+            cand = dict(m)
+            cand["tau"] = float(tau)
+            cand["t_lower"] = float(t_lower)
+            cand["t_upper"] = float(t_upper)
+            candidates.append(cand)
+            progress_count += 1
+            if pbar:
+                pbar.update(1)
+            elif progress_enabled and (progress_count % progress_step == 0 or progress_count == total_iters):
+                pct = (progress_count / total_iters) * 100 if total_iters else 100.0
+                elapsed = time.time() - start_time
+                print(f"progress {progress_count}/{total_iters} ({pct:.1f}%) elapsed {elapsed:.1f}s", file=sys.stderr)
+    if pbar:
+        pbar.close()
+    if progress_enabled:
+        elapsed = time.time() - start_time
+        print(f"done {progress_count} iterations in {elapsed:.1f}s", file=sys.stderr)
     base_candidate = dict(baseline_metrics)
     base_candidate["tau"] = float(base["tau"])
     base_candidate["t_lower"] = float(base["t_lower"])

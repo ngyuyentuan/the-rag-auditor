@@ -32,6 +32,11 @@ def parse_eval(path: Path):
                 meta["n"] = int(line.split("`")[1]) if "`" in line else int(line.split(":", 1)[1])
             except Exception:
                 pass
+        if line.startswith("- seed:"):
+            try:
+                meta["seed"] = int(line.split("`")[1]) if "`" in line else int(line.split(":", 1)[1])
+            except Exception:
+                pass
         if line.startswith("## "):
             cur = line[3:].strip()
             sections[cur] = {}
@@ -62,7 +67,30 @@ def parse_eval(path: Path):
             sec["logit_col"] = meta["logit_col"]
         if "y_col" not in sec and "y_col" in meta:
             sec["y_col"] = meta["y_col"]
+        if "seed" not in sec and "seed" in meta:
+            sec["seed"] = meta["seed"]
     return sections
+
+
+def extract_meta(eval_data):
+    meta = {}
+    for sec in eval_data.values():
+        if "n" in sec and "n" not in meta:
+            meta["n"] = sec["n"]
+        if "seed" in sec and "seed" not in meta:
+            meta["seed"] = sec["seed"]
+    return meta
+
+
+def read_product_table_n(path: Path):
+    if not path.exists():
+        return None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("- n:"):
+            if "`" in line:
+                return line.split("`")[1]
+            return line.split(":", 1)[1].strip()
+    return None
 
 
 def load_yaml_thresholds(path: Path, track: str):
@@ -194,6 +222,9 @@ def main():
 
     scifact_eval = parse_eval(Path(args.scifact_report))
     fever_eval = parse_eval(Path(args.fever_report))
+    scifact_meta = extract_meta(scifact_eval)
+    fever_meta = extract_meta(fever_eval)
+    product_table_n = read_product_table_n(Path("reports/stage1_product_table.md"))
 
     baseline_yaml = Path("configs/thresholds.yaml")
     joint_scifact_yaml = Path("configs/thresholds_stage1_joint_tuned_scifact.yaml")
@@ -445,13 +476,19 @@ def main():
         accept_metrics = eval_optional(track, accept_yaml, eval_data)
         if accept_yaml is not None or accept_metrics is not None:
             extras.append(("action_accept", accept_metrics))
-            if isinstance(accept_metrics, dict):
+            if accept_metrics == "missing":
+                action_notes.append("- action_accept_certify: `missing`")
+                action_notes.append("- action_accept_action_ci_status: `missing`")
+            elif isinstance(accept_metrics, dict):
                 action_notes.append(f"- action_accept_certify: `{accept_metrics.get('certify','both')}`")
                 action_notes.append(f"- action_accept_action_ci_status: `{action_ci_status(accept_metrics)}`")
         reject_metrics = eval_optional(track, reject_yaml, eval_data)
         if reject_yaml is not None or reject_metrics is not None:
             extras.append(("action_reject", reject_metrics))
-            if isinstance(reject_metrics, dict):
+            if reject_metrics == "missing":
+                action_notes.append("- action_reject_certify: `missing`")
+                action_notes.append("- action_reject_action_ci_status: `missing`")
+            elif isinstance(reject_metrics, dict):
                 action_notes.append(f"- action_reject_certify: `{reject_metrics.get('certify','both')}`")
                 action_notes.append(f"- action_reject_action_ci_status: `{action_ci_status(reject_metrics)}`")
         return baseline, joint, safety_name, safety_metrics, coverage_name, coverage_metrics, note, extras, action_notes
@@ -490,6 +527,26 @@ def main():
 
     lines = []
     lines.append("# Stage1 Product Decision")
+    lines.append("")
+    lines.append(f"- n_scifact: `{scifact_meta.get('n', 'missing')}`")
+    lines.append(f"- n_fever: `{fever_meta.get('n', 'missing')}`")
+    seed_s = scifact_meta.get("seed")
+    seed_f = fever_meta.get("seed")
+    if seed_s is not None and seed_f is not None:
+        if seed_s == seed_f:
+            lines.append(f"- seed: `{seed_s}`")
+        else:
+            lines.append(f"- seed_scifact: `{seed_s}`")
+            lines.append(f"- seed_fever: `{seed_f}`")
+    elif seed_s is not None:
+        lines.append(f"- seed_scifact: `{seed_s}`")
+        lines.append(f"- seed_fever: `missing`")
+    elif seed_f is not None:
+        lines.append(f"- seed_scifact: `missing`")
+        lines.append(f"- seed_fever: `{seed_f}`")
+    else:
+        lines.append(f"- seed: `missing`")
+    lines.append(f"- product_table_n: `{product_table_n if product_table_n is not None else 'missing'}`")
     lines.append("")
     write_section(lines, "SciFact", sci_baseline, sci_joint, sci_safety_name, sci_safety_metrics, sci_cov_name, sci_cov_metrics, sci_extras)
     if sci_action_notes:

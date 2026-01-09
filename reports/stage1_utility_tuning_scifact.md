@@ -112,5 +112,5 @@ Selected config
 Repro command
 
 ```
-scripts/stage1_utility_tune.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --n 1000 --tau_source joint_grid --tau_grid_steps 60 --threshold_steps 60 --constraint_ci wilson --out_md reports/stage1_utility_tuning_scifact.md --out_yaml configs/thresholds_stage1_product_scifact.yaml
+scripts/stage1_utility_tune.py --track scifact --in_path /mnt/c/Users/nguye/Downloads/My projject/the-rag-auditor/data/calibration/scifact_stage1_dev_train.parquet --logit_col raw_max_top3 --y_col y --n 1000 --seed 14 --tau_source joint_grid --tau_grid_steps 60 --threshold_steps 60 --constraint_ci wilson --out_md reports/stage1_utility_tuning_scifact.md --out_yaml configs/thresholds_stage1_product_scifact.yaml --progress
 ```

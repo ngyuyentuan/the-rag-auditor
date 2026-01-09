@@ -75,7 +75,7 @@ def main():
     ap.add_argument("--tau_grid_max", type=float, default=2.0)
     ap.add_argument("--tau_grid_steps", type=int, default=25)
     ap.add_argument("--threshold_steps", type=int, default=50)
-    ap.add_argument("--min_accept_count", type=int, default=50)
+    ap.add_argument("--min_accept_count", type=int, default=10)
     ap.add_argument("--min_reject_count", type=int, default=50)
     ap.add_argument("--min_coverage", type=float, default=0.30)
     ap.add_argument("--max_fp_given_accept_upper95", type=float, default=0.10)
@@ -156,9 +156,13 @@ def main():
                 score += (args.min_accept_count - row["accept_count"]) / max(1, args.min_accept_count)
             score += max(0.0, row["fp_given_accept_upper95"] - args.max_fp_given_accept_upper95)
         if args.certify in ("both", "reject_only"):
+            if row["accept_count"] < args.min_accept_count:
+                score += (args.min_accept_count - row["accept_count"]) / max(1, args.min_accept_count)
             if row["reject_count"] < args.min_reject_count:
                 score += (args.min_reject_count - row["reject_count"]) / max(1, args.min_reject_count)
             score += max(0.0, row["fn_given_reject_upper95"] - args.max_fn_given_reject_upper95)
+            if args.max_reject_rate is not None:
+                score += max(0.0, row["reject_rate"] - args.max_reject_rate)
         return score
 
     def compute_row(tau, tl, tu, cs=None):
@@ -203,6 +207,8 @@ def main():
             if fp_accept_ci[1] > args.max_fp_given_accept_upper95:
                 feasible = False
         if args.certify in ("both", "reject_only"):
+            if accept_count < args.min_accept_count:
+                feasible = False
             if reject_count < args.min_reject_count:
                 feasible = False
             if fn_reject_ci[1] > args.max_fn_given_reject_upper95:
@@ -318,10 +324,14 @@ def main():
                 if r["fp_given_accept_upper95"] > args.max_fp_given_accept_upper95:
                     failures.append("fp_upper95")
             if args.certify in ("both", "reject_only"):
+                if r["accept_count"] < args.min_accept_count:
+                    failures.append("accept_count")
                 if r["reject_count"] < args.min_reject_count:
                     failures.append("reject_count")
                 if r["fn_given_reject_upper95"] > args.max_fn_given_reject_upper95:
                     failures.append("fn_upper95")
+                if args.max_reject_rate is not None and r["reject_rate"] > args.max_reject_rate:
+                    failures.append("reject_rate")
             fail_text = ",".join(failures) if failures else "ok"
             lines.append(
                 "| {candidate_name} | {tau:.4f} | {t_lower:.4f} | {t_upper:.4f} | {coverage:.4f} | {accept_count} | {reject_count} | {fp_given_accept_upper95:.4f} | {fn_given_reject_upper95:.4f} | {accept_status} | {reject_status} | {fail_text} |".format(
@@ -365,9 +375,11 @@ def main():
         for r in near:
             cov_short = max(0.0, args.min_coverage - r["coverage"])
             acc_short = max(0.0, args.min_accept_count - r["accept_count"]) / max(1, args.min_accept_count) if args.certify in ("both", "accept_only") else 0.0
+            acc_short = max(0.0, args.min_accept_count - r["accept_count"]) / max(1, args.min_accept_count) if args.certify in ("both", "accept_only", "reject_only") else 0.0
             rej_short = max(0.0, args.min_reject_count - r["reject_count"]) / max(1, args.min_reject_count) if args.certify in ("both", "reject_only") else 0.0
             fp_ex = max(0.0, r["fp_given_accept_upper95"] - args.max_fp_given_accept_upper95) if args.certify in ("both", "accept_only") else 0.0
             fn_ex = max(0.0, r["fn_given_reject_upper95"] - args.max_fn_given_reject_upper95) if args.certify in ("both", "reject_only") else 0.0
+            rej_rate_ex = max(0.0, r["reject_rate"] - args.max_reject_rate) if args.certify == "reject_only" and args.max_reject_rate is not None else 0.0
             lines.append(
                 "| {tau:.4f} | {t_lower:.4f} | {t_upper:.4f} | {coverage:.4f} | {accept_count} | {reject_count} | {fp_given_accept_upper95:.4f} | {fn_given_reject_upper95:.4f} | {cov_short:.4f} | {acc_short:.4f} | {rej_short:.4f} | {fp_ex:.4f} | {fn_ex:.4f} |".format(
                     **r,

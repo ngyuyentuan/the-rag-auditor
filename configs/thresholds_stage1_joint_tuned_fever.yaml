@@ -1,6 +1,6 @@
-tau: 1.1152542372881356
-t_lower: 0.14142857142857143
-t_upper: 0.19183673469387755
-export_budget: 0.4
+tau: 1.694915254237288
+t_lower: 0.23491525423728812
+t_upper: 0.27847457627118644
+export_budget: 0.3
 max_fp_accept_rate: 0.05
 max_fn_reject_rate: 0.05

@@ -72,6 +72,8 @@ def summarize(rows, policy):
     stage2_ran = 0
     stage2_route = 0
     capped = 0
+    stage2_budget = None
+    missing_stage2_reason_count = 0
     rerank_gt0 = 0
     nli_gt0 = 0
     total_ms = []
@@ -96,6 +98,16 @@ def summarize(rows, policy):
                     stage2_route += 1
         else:
             stage2_route += 1 if route_requested else 0
+        if stage2_budget is None:
+            router_budget = (stage1.get("router") or {}).get("stage2_budget")
+            if router_budget is not None:
+                stage2_budget = router_budget
+            elif stage2.get("cap_budget") is not None:
+                stage2_budget = stage2.get("cap_budget")
+        rerank_reason = (stage2.get("rerank") or {}).get("reason")
+        nli_reason = (stage2.get("nli") or {}).get("reason")
+        if rerank_reason == "missing_stage2_outputs" or nli_reason == "missing_stage2_outputs":
+            missing_stage2_reason_count += 1
         y = (row.get("ground_truth") or {}).get("y")
         if decision == "ACCEPT" and y == 0:
             fp += 1
@@ -130,16 +142,43 @@ def summarize(rows, policy):
                 final_fn += 1
         else:
             final_uncertain += 1
+    n_rows = n
     n = n or 1
+    budget_gated = policy == "uncertain_only" and stage2_budget is not None
+    budget_k = None
+    stage2_should_run = None
+    missing_stage2_outputs = None
+    missing_stage2_reason_out = None
+    missing_stage2_outputs_negative_count = None
+    stage2_budget_out = stage2_budget
+    if budget_gated:
+        budget_k = int(math.floor(stage2_budget * n_rows))
+        stage2_should_run = uncertain - capped
+        missing_stage2_outputs = stage2_should_run - stage2_ran
+        if missing_stage2_outputs < 0:
+            missing_stage2_outputs_negative_count = 1
+            missing_stage2_outputs = 0
+        else:
+            missing_stage2_outputs_negative_count = 0
+        missing_stage2_reason_out = missing_stage2_reason_count
     return {
+        "n": n_rows,
         "accept_rate": accept / n,
         "reject_rate": reject / n,
         "uncertain_rate": uncertain / n,
+        "uncertain_count": uncertain,
         "stage2_rate": stage2_ran / n,
         "stage2_ran_rate": stage2_ran / n,
+        "stage2_ran_count": stage2_ran,
         "stage2_route_rate": stage2_route / n,
         "capped_count": capped,
         "capped_rate": capped / n,
+        "stage2_budget": stage2_budget_out,
+        "budget_k": budget_k,
+        "stage2_should_run": stage2_should_run,
+        "missing_stage2_outputs": missing_stage2_outputs,
+        "missing_stage2_reason_count": missing_stage2_reason_out,
+        "missing_stage2_outputs_negative_count": missing_stage2_outputs_negative_count,
         "fp_accept_rate": fp / n,
         "fn_reject_rate": fn / n,
         "ok_rate_stage1": 1.0 - (fp / n) - (fn / n),
@@ -157,6 +196,14 @@ def summarize(rows, policy):
 
 def format_float(x):
     return f"{x:.4f}"
+
+
+def format_int_or_na(x):
+    return "na" if x is None else str(int(x))
+
+
+def format_float_or_na(x):
+    return "na" if x is None else format_float(float(x))
 
 
 def build_feature_map(parquet_path, logit_col, feature_cols):
@@ -486,8 +533,8 @@ def main():
     for track in ["scifact", "fever"]:
         lines.append(f"## {track}")
         lines.append("")
-        lines.append("| file | accept_rate | reject_rate | uncertain_rate | stage2_rate | stage2_ran_rate | stage2_route_rate | capped_count | capped_rate | fp_accept_rate | fn_reject_rate | ok_rate_stage1 | final_accept_rate | final_reject_rate | final_uncertain_rate | final_ok_rate | abstain_rate | mean_ms | p95_ms | rerank_ms_gt0 | nli_ms_gt0 |")
-        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        lines.append("| file | accept_rate | reject_rate | uncertain_rate | stage2_rate | stage2_ran_rate | stage2_route_rate | capped_count | capped_rate | budget_k | stage2_should_run | missing_stage2_outputs | missing_stage2_reason_count | fp_accept_rate | fn_reject_rate | ok_rate_stage1 | final_accept_rate | final_reject_rate | final_uncertain_rate | final_ok_rate | abstain_rate | mean_ms | p95_ms | rerank_ms_gt0 | nli_ms_gt0 | n | uncertain_count | stage2_ran_count | stage2_budget | missing_stage2_outputs_negative_count |")
+        lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for name in [
             f"{track}_baseline_uncertain_only_{args.n}_real.jsonl",
             f"{track}_baseline_always_{args.n}_real.jsonl",
@@ -496,11 +543,12 @@ def main():
         ]:
             path = out_dir / name
             if not path.exists():
-                lines.append(f"| {name} | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing | missing |")
+                missing = " | ".join(["na"] * 29)
+                lines.append(f"| {name} | {missing} |")
                 continue
             policy = "always" if "always" in name else "uncertain_only"
             s = summarize(list(iter_jsonl(path)), policy)
-            lines.append("| {f} | {a} | {r} | {u} | {s2} | {s2r} | {s2route} | {cap} | {capr} | {fp} | {fn} | {ok} | {fa} | {fr} | {fu} | {fok} | {ab} | {mean} | {p95} | {rg} | {ng} |".format(
+            lines.append("| {f} | {a} | {r} | {u} | {s2} | {s2r} | {s2route} | {cap} | {capr} | {bk} | {s2sr} | {ms2} | {ms2r} | {fp} | {fn} | {ok} | {fa} | {fr} | {fu} | {fok} | {ab} | {mean} | {p95} | {rg} | {ng} | {n} | {uc} | {s2rc} | {s2b} | {ms2n} |".format(
                 f=name,
                 a=format_float(s["accept_rate"]),
                 r=format_float(s["reject_rate"]),
@@ -510,6 +558,10 @@ def main():
                 s2route=format_float(s["stage2_route_rate"]),
                 cap=s["capped_count"],
                 capr=format_float(s["capped_rate"]),
+                bk=format_int_or_na(s["budget_k"]),
+                s2sr=format_int_or_na(s["stage2_should_run"]),
+                ms2=format_int_or_na(s["missing_stage2_outputs"]),
+                ms2r=format_int_or_na(s["missing_stage2_reason_count"]),
                 fp=format_float(s["fp_accept_rate"]),
                 fn=format_float(s["fn_reject_rate"]),
                 ok=format_float(s["ok_rate_stage1"]),
@@ -522,10 +574,20 @@ def main():
                 p95=f"{s['p95_ms']:.2f}",
                 rg=s["rerank_ms_gt0"],
                 ng=s["nli_ms_gt0"],
+                n=format_int_or_na(s["n"]),
+                uc=format_int_or_na(s["uncertain_count"]),
+                s2rc=format_int_or_na(s["stage2_ran_count"]),
+                s2b=format_float_or_na(s["stage2_budget"]),
+                ms2n=format_int_or_na(s["missing_stage2_outputs_negative_count"]),
             ))
         lines.append("")
     lines.append("Ship recommendation")
     lines.append("")
+    def effective_stage2_rate(policy, summary):
+        if policy == "uncertain_only" and summary.get("stage2_should_run") is not None and summary.get("n"):
+            return summary["stage2_should_run"] / summary["n"]
+        return summary["stage2_ran_rate"]
+
     for track in ["scifact", "fever"]:
         best = None
         for name in [
@@ -539,7 +601,8 @@ def main():
                 continue
             policy = "always" if "always" in name else "uncertain_only"
             s = summarize(list(iter_jsonl(path)), policy)
-            cost = 10.0 * s["fp_accept_rate"] + 10.0 * s["fn_reject_rate"] + 1.0 * s["stage2_ran_rate"]
+            effective_rate = effective_stage2_rate(policy, s)
+            cost = 10.0 * s["fp_accept_rate"] + 10.0 * s["fn_reject_rate"] + 1.0 * effective_rate
             feasible = s["fp_accept_rate"] <= 0.01 and s["fn_reject_rate"] <= 0.01
             cand = (feasible, cost, name, s)
             if best is None or (cand[0], -cand[1]) > (best[0], -best[1]):
@@ -552,11 +615,14 @@ def main():
                 preferred = f"{track}_baseline_uncertain_only_{args.n}_real.jsonl"
                 if (out_dir / preferred).exists():
                     s_pref = summarize(list(iter_jsonl(out_dir / preferred)), "uncertain_only")
-                    lines.append(f"- {track}: {preferred} cost={10.0 * s_pref['fp_accept_rate'] + 10.0 * s_pref['fn_reject_rate'] + 1.0 * s_pref['stage2_ran_rate']:.4f} fp={s_pref['fp_accept_rate']:.4f} fn={s_pref['fn_reject_rate']:.4f} stage2_ran_rate={s_pref['stage2_ran_rate']:.4f} feasible={s_pref['fp_accept_rate'] <= 0.01 and s_pref['fn_reject_rate'] <= 0.01}")
+                    pref_effective_rate = effective_stage2_rate("uncertain_only", s_pref)
+                    lines.append(f"- {track}: {preferred} cost={10.0 * s_pref['fp_accept_rate'] + 10.0 * s_pref['fn_reject_rate'] + 1.0 * pref_effective_rate:.4f} fp={s_pref['fp_accept_rate']:.4f} fn={s_pref['fn_reject_rate']:.4f} stage2_effective_rate={pref_effective_rate:.4f} stage2_ran_rate={s_pref['stage2_ran_rate']:.4f} feasible={s_pref['fp_accept_rate'] <= 0.01 and s_pref['fn_reject_rate'] <= 0.01}")
                 else:
-                    lines.append(f"- {track}: {name} cost={cost:.4f} fp={s['fp_accept_rate']:.4f} fn={s['fn_reject_rate']:.4f} stage2_ran_rate={s['stage2_ran_rate']:.4f} feasible={feasible}")
+                    effective_rate = effective_stage2_rate("always" if "always" in name else "uncertain_only", s)
+                    lines.append(f"- {track}: {name} cost={cost:.4f} fp={s['fp_accept_rate']:.4f} fn={s['fn_reject_rate']:.4f} stage2_effective_rate={effective_rate:.4f} stage2_ran_rate={s['stage2_ran_rate']:.4f} feasible={feasible}")
             else:
-                lines.append(f"- {track}: {name} cost={cost:.4f} fp={s['fp_accept_rate']:.4f} fn={s['fn_reject_rate']:.4f} stage2_ran_rate={s['stage2_ran_rate']:.4f} feasible={feasible}")
+                effective_rate = effective_stage2_rate("always" if "always" in name else "uncertain_only", s)
+                lines.append(f"- {track}: {name} cost={cost:.4f} fp={s['fp_accept_rate']:.4f} fn={s['fn_reject_rate']:.4f} stage2_effective_rate={effective_rate:.4f} stage2_ran_rate={s['stage2_ran_rate']:.4f} feasible={feasible}")
     report.write_text("\n".join(lines), encoding="utf-8")
 
 

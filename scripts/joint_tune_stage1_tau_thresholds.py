@@ -1,6 +1,7 @@
 import argparse
 import datetime as dt
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -138,6 +139,9 @@ def main():
     ap.add_argument("--lambda_uncertain", type=float, default=0.2)
     ap.add_argument("--out_md", default=None)
     ap.add_argument("--out_yaml", default=None)
+    ap.add_argument("--progress", dest="progress", action="store_true")
+    ap.add_argument("--no_progress", dest="progress", action="store_false")
+    ap.set_defaults(progress=None)
     args = ap.parse_args()
 
     in_path = Path(args.in_path)
@@ -174,6 +178,23 @@ def main():
     y_arr = np.asarray(y_vals, dtype=int)
     lower_grid = np.asarray(lower_grid, dtype=float)
     upper_grid = np.asarray(upper_grid, dtype=float)
+    valid_pairs = [
+        (i, j)
+        for i in range(len(lower_grid))
+        for j in range(len(upper_grid))
+        if lower_grid[i] < upper_grid[j]
+    ]
+    total_iters = len(tau_grid) * len(valid_pairs)
+    progress_enabled = args.progress if args.progress is not None else sys.stderr.isatty()
+    try:
+        from tqdm import tqdm as _tqdm
+    except Exception:
+        _tqdm = None
+    progress_step = max(1, total_iters // 100) if total_iters else 1
+    progress_count = 0
+    start_time = time.time()
+    pbar = _tqdm(total=total_iters, desc="grid", file=sys.stderr, disable=not progress_enabled) if _tqdm else None
+
     for tau in tau_grid:
         tau_val = float(tau)
         cs = stable_sigmoid(logits_arr / tau_val)
@@ -185,39 +206,50 @@ def main():
         n = len(cs_sorted)
         total_pos = int(pos_prefix[n])
         total_neg = int(neg_prefix[n])
-        for i, t_lower in enumerate(lower_grid):
+        for i, j in valid_pairs:
+            t_lower = lower_grid[i]
+            t_upper = upper_grid[j]
             low_idx = int(idx_low[i])
-            for j, t_upper in enumerate(upper_grid):
-                if t_lower >= t_upper:
-                    continue
-                up_idx = int(idx_upper[j])
-                reject_count = low_idx
-                accept_count = n - up_idx
-                uncertain_count = up_idx - low_idx
-                fp_accept = total_neg - int(neg_prefix[up_idx])
-                fn_reject = int(pos_prefix[low_idx])
-                accept_rate = accept_count / n if n else 0.0
-                reject_rate = reject_count / n if n else 0.0
-                uncertain_rate = uncertain_count / n if n else 0.0
-                fp_accept_rate = fp_accept / n if n else 0.0
-                fn_reject_rate = fn_reject / n if n else 0.0
-                ok_rate = 1.0 - fp_accept_rate - fn_reject_rate
-                coverage = 1.0 - uncertain_rate
-                decided = accept_count + reject_count
-                accuracy_on_decided = (accept_count + reject_count - fp_accept - fn_reject) / decided if decided else 0.0
-                results.append({
-                    "accept_rate": accept_rate,
-                    "reject_rate": reject_rate,
-                    "uncertain_rate": uncertain_rate,
-                    "fp_accept_rate": fp_accept_rate,
-                    "fn_reject_rate": fn_reject_rate,
-                    "ok_rate": ok_rate,
-                    "coverage": coverage,
-                    "accuracy_on_decided": accuracy_on_decided,
-                    "tau": float(tau),
-                    "t_lower": float(t_lower),
-                    "t_upper": float(t_upper),
-                })
+            up_idx = int(idx_upper[j])
+            reject_count = low_idx
+            accept_count = n - up_idx
+            uncertain_count = up_idx - low_idx
+            fp_accept = total_neg - int(neg_prefix[up_idx])
+            fn_reject = int(pos_prefix[low_idx])
+            accept_rate = accept_count / n if n else 0.0
+            reject_rate = reject_count / n if n else 0.0
+            uncertain_rate = uncertain_count / n if n else 0.0
+            fp_accept_rate = fp_accept / n if n else 0.0
+            fn_reject_rate = fn_reject / n if n else 0.0
+            ok_rate = 1.0 - fp_accept_rate - fn_reject_rate
+            coverage = 1.0 - uncertain_rate
+            decided = accept_count + reject_count
+            accuracy_on_decided = (accept_count + reject_count - fp_accept - fn_reject) / decided if decided else 0.0
+            results.append({
+                "accept_rate": accept_rate,
+                "reject_rate": reject_rate,
+                "uncertain_rate": uncertain_rate,
+                "fp_accept_rate": fp_accept_rate,
+                "fn_reject_rate": fn_reject_rate,
+                "ok_rate": ok_rate,
+                "coverage": coverage,
+                "accuracy_on_decided": accuracy_on_decided,
+                "tau": float(tau),
+                "t_lower": float(t_lower),
+                "t_upper": float(t_upper),
+            })
+            progress_count += 1
+            if pbar:
+                pbar.update(1)
+            elif progress_enabled and (progress_count % progress_step == 0 or progress_count == total_iters):
+                pct = (progress_count / total_iters) * 100 if total_iters else 100.0
+                elapsed = time.time() - start_time
+                print(f"progress {progress_count}/{total_iters} ({pct:.1f}%) elapsed {elapsed:.1f}s", file=sys.stderr)
+    if pbar:
+        pbar.close()
+    if progress_enabled:
+        elapsed = time.time() - start_time
+        print(f"done {progress_count} iterations in {elapsed:.1f}s", file=sys.stderr)
 
     budgets = sorted(args.budgets)
     best_per_budget = {}
@@ -257,7 +289,7 @@ def main():
     lines = []
     lines.append(f"# Stage1 Joint Tuning ({args.track})")
     lines.append("")
-    lines.append(f"Generated: `{dt.datetime.utcnow().isoformat()}+00:00`")
+    lines.append(f"Generated: `{dt.datetime.now(dt.UTC).isoformat()}`")
     lines.append("")
     lines.append("Config")
     lines.append("")

@@ -1,0 +1,9 @@
+t_entail: 0.8454545454545455
+t_contra: 0.3
+t_neutral: 0.5
+metrics:
+  coverage: 0.71
+  accuracy_on_decided: 0.9887323943661972
+  ok_rate: 0.992
+  fp_rate: 0.004
+  fn_rate: 0.004

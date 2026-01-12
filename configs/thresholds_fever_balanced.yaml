@@ -1,0 +1,14 @@
+tau: 1.5871794871794873
+t_lower: 0.5115384615384615
+t_upper: 0.6589743589743591
+profile: balanced
+lambda_fp: 5.0
+lambda_fn: 5.0
+lambda_unc: 2.0
+metrics:
+  coverage: 0.724
+  ok_rate: 0.8779999999999999
+  accuracy_on_decided: 0.8314917127071824
+  fp_accept_rate: 0.06
+  fn_reject_rate: 0.062
+  utility: -0.3548508287292818
